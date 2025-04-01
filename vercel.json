@@ -2,16 +2,33 @@
   "version": 2,
   "buildCommand": "cd app/client && npm install && npm run build && cd ../.. && npm install && npm run build",
   "outputDirectory": "dist",
-  "functions": {
-    "api/index.ts": {
-      "memory": 1024,
-      "maxDuration": 10
+  "builds": [
+    {
+      "src": "api/index.ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "app/client/dist/**",
+      "use": "@vercel/static"
     }
-  },
+  ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "/api/index" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "^/assets/(.*)",
+      "dest": "/app/client/dist/assets/$1"
+    },
+    {
+      "src": "/(.*)\\.(?:js|css|ico|png|jpg|jpeg|svg|gif)$",
+      "dest": "/app/client/dist/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/app/client/dist/index.html"
+    }
   ],
   "env": {
     "NODE_ENV": "production"

@@ -51,7 +51,10 @@ app.use('/api', router);
 
 // Serve static files
 const publicPath = path.join(process.cwd(), 'dist', 'public');
-app.use(express.static(publicPath));
+app.use(express.static(publicPath, {
+  maxAge: '1h',
+  index: false // Don't serve index.html for directory requests
+}));
 
 // Health check route
 app.get('/api/health', (req: Request, res: Response) => {
@@ -60,7 +63,6 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 // Catch-all route for client-side routing
 app.get('*', (req: Request, res: Response) => {
-  // Check if the request is for an API route
   if (req.url.startsWith('/api/')) {
     return res.status(404).json({ 
       error: 'Not found',
@@ -69,7 +71,13 @@ app.get('*', (req: Request, res: Response) => {
   }
   
   // For non-API routes, serve the index.html for client-side routing
-  res.sendFile(path.join(publicPath, 'index.html'));
+  const indexPath = path.join(publicPath, 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error('Error sending index.html:', err);
+      res.status(500).send('Error loading application');
+    }
+  });
 });
 
 // Error handling middleware
@@ -83,8 +91,10 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 const port = process.env.PORT || 3000;
 
-app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, () => {
+    console.log(`Server is running on http://localhost:${port}`);
+  });
+}
 
 export default app;

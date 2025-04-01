@@ -1,4 +1,5 @@
-import { execSync } from 'child_process';
+// vercel-install.cjs - CommonJS script
+const { execSync } = require('child_process');
 
 console.log('Installing CSS processing dependencies...');
 try {

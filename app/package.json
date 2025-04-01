@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
-    "build:client": "npm install autoprefixer postcss tailwindcss --no-save && vite build",
+    "build:client": "echo 'Skipping client build'",
     "build:server": "esbuild server/index.ts --platform=node --bundle --external:@google-cloud/* --external:lightningcss --external:@babel/* --format=esm --outfile=dist/server.js",
-    "build": "npm run build:client && npm run build:server",
+    "build": "chmod +x build.sh && ./build.sh",
     "start": "cross-env NODE_ENV=production node dist/server.js",
     "check": "tsc",
     "db:push": "drizzle-kit push"

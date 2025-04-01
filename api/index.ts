@@ -51,12 +51,6 @@ app.use(session({
 // API routes
 app.use('/api', router);
 
-// Serve static files
-const clientPath = path.join(process.cwd(), 'app', 'client', 'dist');
-app.use(express.static(clientPath, {
-  maxAge: '1h'
-}));
-
 // Health check route
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok' });
@@ -67,16 +61,6 @@ app.all('/api/*', (req: Request, res: Response) => {
   res.status(404).json({
     error: 'Not Found',
     message: 'The requested API endpoint does not exist'
-  });
-});
-
-// Serve index.html for client-side routing
-app.get('*', (req: Request, res: Response) => {
-  res.sendFile(path.join(clientPath, 'index.html'), err => {
-    if (err) {
-      console.error('Error sending index.html:', err);
-      res.status(500).send('Error loading application');
-    }
   });
 });
 

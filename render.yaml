@@ -1,0 +1,14 @@
+services:
+  - name: attendance-api
+    type: web
+    env: node
+    rootDir: .
+    buildCommand: ls -la && mkdir -p app/client && cp -r client app/ && cp -r server app/ && cp vite.config.ts app/ && cp package.json app/ && cd app && npm install --production=false && npm run build
+    startCommand: cd app && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+    plan: free
+    autoDeploy: true 

@@ -1,22 +1,13 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["api/**"]
-      }
-    },
-    {
-      "src": "app/client/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist",
-        "buildCommand": "cd app/client && npm install && npm run build"
-      }
+  "buildCommand": "cd app/client && npm install && npm run build",
+  "outputDirectory": "app/client/dist",
+  "functions": {
+    "api/index.ts": {
+      "memory": 1024,
+      "maxDuration": 10
     }
-  ],
+  },
   "routes": [
     {
       "src": "/api/(.*)",
@@ -27,23 +18,23 @@
     },
     {
       "src": "/assets/(.*)",
-      "dest": "/app/client/dist/assets/$1"
+      "dest": "/assets/$1"
     },
     {
       "src": "/static/(.*)",
-      "dest": "/app/client/dist/static/$1"
+      "dest": "/static/$1"
     },
     {
       "src": "/favicon.ico",
-      "dest": "/app/client/dist/favicon.ico"
+      "dest": "/favicon.ico"
     },
     {
       "src": "/(.*)\\.(?:js|css|png|jpg|jpeg|svg|gif)$",
-      "dest": "/app/client/dist/$1"
+      "dest": "/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "/app/client/dist/index.html"
+      "dest": "/index.html"
     }
   ],
   "env": {

@@ -2,19 +2,15 @@
   "version": 2,
   "buildCommand": "cd app && npm run build",
   "outputDirectory": "app/dist",
-  "builds": [
-    {
-      "src": "app/client/index.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "app/server/index.ts",
-      "use": "@vercel/node"
+  "functions": {
+    "app/server/index.ts": {
+      "memory": 1024,
+      "maxDuration": 10
     }
-  ],
+  },
   "routes": [
-    { "src": "/api/(.*)", "dest": "app/server/index.ts" },
-    { "src": "/(.*)", "dest": "app/client/index.html" }
+    { "src": "/api/(.*)", "dest": "/app/server/index.ts" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ],
   "env": {
     "NODE_ENV": "production"

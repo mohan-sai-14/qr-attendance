@@ -496,4 +496,7 @@ router.get('/debug/login-test', (req: express.Request, res: express.Response) =>
         error: error.message
       });
     });
-}); 
+});
+
+// Default export for compatibility
+export default router; 

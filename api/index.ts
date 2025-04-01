@@ -49,9 +49,9 @@ app.use(session({
 // API routes
 app.use('/api', router);
 
-// Serve static files from client build directory if available
-const clientBuildPath = path.join(__dirname, '../client/dist');
-app.use(express.static(clientBuildPath));
+// Serve static files
+const publicPath = path.join(process.cwd(), 'dist', 'public');
+app.use(express.static(publicPath));
 
 // Health check route
 app.get('/api/health', (req: Request, res: Response) => {
@@ -69,7 +69,7 @@ app.get('*', (req: Request, res: Response) => {
   }
   
   // For non-API routes, serve the index.html for client-side routing
-  res.sendFile(path.join(clientBuildPath, 'index.html'));
+  res.sendFile(path.join(publicPath, 'index.html'));
 });
 
 // Error handling middleware

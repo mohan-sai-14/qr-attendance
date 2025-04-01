@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm install && npm run build",
+  "buildCommand": "cd app/client && npm install && npm run build && cd ../.. && npm install && npm run build",
   "outputDirectory": "dist",
   "functions": {
     "api/index.ts": {
@@ -10,6 +10,7 @@
   },
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/index" },
+    { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ],
   "env": {

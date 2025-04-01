@@ -15,14 +15,22 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/index.ts"
+      "dest": "api/index.ts"
     },
     {
       "src": "^/assets/(.*)",
       "dest": "/app/client/dist/assets/$1"
     },
     {
-      "src": "/(.*)\\.(?:js|css|ico|png|jpg|jpeg|svg|gif)$",
+      "src": "^/static/(.*)",
+      "dest": "/app/client/dist/static/$1"
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "/app/client/dist/favicon.ico"
+    },
+    {
+      "src": "/(.*)\\.(?:js|css|png|jpg|jpeg|svg|gif)$",
       "dest": "/app/client/dist/$1"
     },
     {

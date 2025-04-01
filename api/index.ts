@@ -13,7 +13,9 @@ const app = express();
 // CORS configuration
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Body parsing middleware
@@ -50,10 +52,9 @@ app.use(session({
 app.use('/api', router);
 
 // Serve static files
-const publicPath = path.join(process.cwd(), 'dist', 'public');
-app.use(express.static(publicPath, {
-  maxAge: '1h',
-  index: false // Don't serve index.html for directory requests
+const clientPath = path.join(process.cwd(), 'app', 'client', 'dist');
+app.use(express.static(clientPath, {
+  maxAge: '1h'
 }));
 
 // Health check route
@@ -61,18 +62,17 @@ app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok' });
 });
 
-// Catch-all route for client-side routing
+// API 404 handler
+app.all('/api/*', (req: Request, res: Response) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: 'The requested API endpoint does not exist'
+  });
+});
+
+// Serve index.html for client-side routing
 app.get('*', (req: Request, res: Response) => {
-  if (req.url.startsWith('/api/')) {
-    return res.status(404).json({ 
-      error: 'Not found',
-      details: 'The requested API endpoint does not exist'
-    });
-  }
-  
-  // For non-API routes, serve the index.html for client-side routing
-  const indexPath = path.join(publicPath, 'index.html');
-  res.sendFile(indexPath, (err) => {
+  res.sendFile(path.join(clientPath, 'index.html'), err => {
     if (err) {
       console.error('Error sending index.html:', err);
       res.status(500).send('Error loading application');
@@ -83,17 +83,17 @@ app.get('*', (req: Request, res: Response) => {
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error('Error:', err);
-  res.status(500).json({ 
-    error: 'Internal server error',
-    details: err.message || 'An unexpected error occurred'
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message
   });
 });
 
-const port = process.env.PORT || 3000;
-
+// Only start the server in development
 if (process.env.NODE_ENV !== 'production') {
+  const port = process.env.PORT || 3000;
   app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
+    console.log(`Server running on http://localhost:${port}`);
   });
 }
 

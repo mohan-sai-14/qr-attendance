@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "scripts": {
-    "build": "tsc && mkdir -p dist/public && cp -r app/client/dist/* dist/public/ || true",
-    "postbuild": "cp app/client/dist/index.html dist/public/ || true",
+    "build": "tsc",
     "start": "node dist/api/index.js"
   },
   "dependencies": {

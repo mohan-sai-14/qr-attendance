@@ -101,13 +101,22 @@ const StudentDashboard = () => {
     queryKey: ['attendanceHistory'],
     queryFn: async () => {
       try {
-        const response = await axios.get('/api/attendance/me');
+        const response = await axios.get('/api/attendance/me', {
+          withCredentials: true, // Ensure cookies are sent
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
+        console.log('Attendance history response:', response.data);
         return response.data;
       } catch (error) {
         console.error('Error fetching attendance history:', error);
         return [];
       }
-    }
+    },
+    refetchOnWindowFocus: false,
+    retry: 1
   });
 
   // Dismiss welcome screen after 3 seconds
@@ -268,6 +277,9 @@ const StudentDashboard = () => {
           ) : !attendanceHistory || attendanceHistory.length === 0 ? (
             <div className="text-center py-4">
               <p className="text-muted-foreground">No attendance records found.</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                Your attendance will be recorded when you check into a session.
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -282,22 +294,24 @@ const StudentDashboard = () => {
                 </div>
               </div>
               
-              <div>
-                <p className="text-sm text-muted-foreground mb-2">Attendance Rate</p>
-                <div className="relative pt-1">
-                  <div className="overflow-hidden h-2 text-xs flex rounded bg-primary/20">
-                    <div 
-                      style={{ 
-                        width: `${(attendanceHistory.filter(a => a.status === 'present').length / attendanceHistory.length) * 100}%` 
-                      }} 
-                      className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-primary"
-                    ></div>
+              {attendanceHistory.length > 0 && (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">Attendance Rate</p>
+                  <div className="relative pt-1">
+                    <div className="overflow-hidden h-2 text-xs flex rounded bg-primary/20">
+                      <div 
+                        style={{ 
+                          width: `${(attendanceHistory.filter(a => a.status === 'present').length / attendanceHistory.length) * 100}%` 
+                        }} 
+                        className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-primary"
+                      ></div>
+                    </div>
                   </div>
+                  <p className="text-right text-sm mt-1">
+                    {Math.round((attendanceHistory.filter(a => a.status === 'present').length / attendanceHistory.length) * 100)}%
+                  </p>
                 </div>
-                <p className="text-right text-sm mt-1">
-                  {Math.round((attendanceHistory.filter(a => a.status === 'present').length / attendanceHistory.length) * 100)}%
-                </p>
-              </div>
+              )}
             </div>
           )}
           

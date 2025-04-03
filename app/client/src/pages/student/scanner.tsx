@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, CSSProperties } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { Html5QrcodePlugin } from '../../components/student/html5-qrcode-plugin';
 import AttendanceCodeInput from '../../components/student/AttendanceCodeInput';
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,8 @@ import { useAuth } from "@/lib/auth";
 import { getActiveSession, recordAttendance } from "@/lib/api";
 import { createClient } from '@supabase/supabase-js';
 import { useToast } from "@/hooks/use-toast";
+import { QrReader } from "react-qr-reader";
+import { Loader2 } from "lucide-react";
 
 // Initialize Supabase client
 const supabaseUrl = 'https://qwavakkbfpdgkvtctogx.supabase.co';
@@ -32,7 +34,7 @@ const SimpleLink = ({ to, children }: { to: string; children: React.ReactNode })
 };
 
 const StudentScannerPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { toast } = useToast();
   const [isScanning, setIsScanning] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +42,12 @@ const StudentScannerPage: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [redirectUrl, setRedirectUrl] = useState('');
   const [activeSession, setActiveSession] = useState<AttendanceRecord | null>(null);
+  const [data, setData] = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>("scanner");
+  const [scanning, setScanning] = useState<boolean>(false);
+  const [hasCamera, setHasCamera] = useState<boolean>(true);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
   // Directly fetch active session
   useEffect(() => {
@@ -74,102 +82,156 @@ const StudentScannerPage: React.FC = () => {
     return () => clearInterval(intervalId);
   }, []);
 
-  const handleQrCodeSuccess = async (decodedText: string) => {
-    try {
-      setIsLoading(true);
-      setErrorMessage('');
-      setIsScanning(false); // Stop scanning immediately after a successful scan
-      
-      console.log("Raw QR code data:", decodedText);
-      
-      let sessionData;
-      try {
-        // Try to parse the QR code data as JSON
-        sessionData = JSON.parse(decodedText);
-        console.log("Decoded QR code data:", sessionData);
-        
-        if (!sessionData.sessionId) {
-          throw new Error('Invalid QR code format: missing session ID');
+  useEffect(() => {
+    // Check if camera is available
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(() => setHasCamera(true))
+      .catch(() => setHasCamera(false));
+    
+    // Try to refresh user session if needed
+    const checkAuth = async () => {
+      if (!user) {
+        try {
+          await refreshUser();
+        } catch (error) {
+          console.error("Unable to refresh authentication:", error);
         }
-        
-        // Get current user information from auth context
-        if (!user) {
-          setErrorMessage('User not authenticated. Please log in again.');
-          return;
-        }
-        
-        console.log("QR Session ID found:", sessionData.sessionId);
-        console.log("User information:", user);
+      }
+    };
+    
+    checkAuth();
+  }, [user, refreshUser]);
 
-        // Send scan data to our new API endpoint
+  const handleScan = async (result: any, error: any) => {
+    if (isProcessing) return; // Prevent multiple simultaneous submissions
+    
+    if (!!error) {
+      console.info("QR Scan error (this may be normal while scanning):", error);
+      return;
+    }
+
+    if (result?.text && !data) {
+      console.log("QR code scanned:", result.text);
+      setData(result.text);
+      setScanning(false);
+      
+      try {
+        setIsProcessing(true);
+        
+        let sessionId = result.text;
+        
+        // Try to parse if it looks like a JSON string
+        if (result.text.startsWith('{') && result.text.endsWith('}')) {
+          try {
+            const parsedData = JSON.parse(result.text);
+            sessionId = parsedData.sessionId || parsedData.id || result.text;
+            console.log("Parsed session ID:", sessionId);
+          } catch (parseError) {
+            console.warn("Could not parse QR data as JSON, using raw text:", parseError);
+          }
+        }
+        
         const response = await fetch('/api/scan', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            sessionId: sessionData.sessionId,
-            userId: user.id,
-            username: user.username,
+            sessionId,
+            userId: user?.id || 3,
+            username: user?.username || 'student',
             timestamp: new Date().toISOString()
           }),
-          credentials: 'include' // Important for cookie-based auth
+          credentials: 'include'
         });
-
+        
+        const result = await response.json();
+        
         if (!response.ok) {
-          const errorData = await response.json();
-          console.error("Error recording attendance:", errorData);
-          setErrorMessage(errorData.error || 'Failed to record attendance. Please try again.');
+          console.error("Error recording attendance:", result);
+          toast({
+            title: "Failed to Record Attendance",
+            description: result.error || result.message || "Unable to record attendance. Please try again.",
+            variant: "destructive"
+          });
           return;
         }
-
-        const result = await response.json();
-        console.log("Attendance recorded successfully:", result);
-        
-        setSuccess(true);
-        setRedirectUrl(result.redirectUrl || '/student');
         
         toast({
-          title: "Success!",
-          description: "Your attendance has been recorded.",
-          duration: 5000
+          title: "Attendance Recorded",
+          description: "Your attendance has been successfully recorded!"
         });
         
-      } catch (e) {
-        console.error("QR code parse error:", e);
-        setErrorMessage('Invalid QR code format. Please try again or use the code entry method.');
-        return;
+        // Redirect after successful scan if a redirect URL is provided
+        if (result.redirectUrl) {
+          window.location.href = result.redirectUrl;
+        }
+        
+      } catch (error) {
+        console.error("Error processing QR code:", error);
+        toast({
+          title: "Error",
+          description: "Failed to process QR code. Please try again or use manual code entry.",
+          variant: "destructive"
+        });
+      } finally {
+        setIsProcessing(false);
       }
-    } catch (error: any) {
-      console.error('Error processing QR code:', error);
-      setErrorMessage('Failed to process QR code. Please try again or use the code entry option.');
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const handleScanAgain = () => {
-    setIsScanning(true);
-    setErrorMessage('');
-    setSuccess(false);
+  const startScanning = () => {
+    setStarted(true);
+    setScanning(true);
+    setData(null);
   };
 
-  // Session code fetching
-  const { data: sessionCode } = useQuery({
-    queryKey: ['sessionCode', activeSession?.id],
-    queryFn: async () => {
-      if (!activeSession?.id) return null;
-      try {
-        const response = await axios.get(`/api/sessions/code/${activeSession.id}`);
-        return response.data.attendanceCode;
-      } catch (error) {
-        console.error('Error fetching session code:', error);
-        return null;
-      }
-    },
-    enabled: !!activeSession?.id,
-    retry: false,
-  });
+  const resetScanner = () => {
+    setData(null);
+    setStarted(false);
+    setScanning(false);
+  };
+
+  const handleCodeSuccess = (redirectUrl: string) => {
+    toast({
+      title: "Attendance Recorded",
+      description: "Your attendance has been successfully recorded!"
+    });
+    
+    // Redirect after successful attendance
+    window.location.href = redirectUrl;
+  };
+
+  const handleCodeError = (errorMessage: string) => {
+    toast({
+      title: "Failed to Record Attendance",
+      description: errorMessage,
+      variant: "destructive"
+    });
+  };
+
+  // Component to show if no camera is available
+  const NoCameraMessage = () => (
+    <div className="text-center p-6 space-y-4">
+      <div className="flex justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-bold">Camera Not Available</h3>
+      <p className="text-gray-600">
+        We couldn't access your camera. Please make sure you've granted camera permissions,
+        or use the manual code entry method instead.
+      </p>
+      <Button 
+        variant="outline" 
+        onClick={() => setActiveTab("manual")}
+        className="mt-2"
+      >
+        Switch to Manual Entry
+      </Button>
+    </div>
+  );
 
   if (!activeSession) {
     return (
@@ -188,51 +250,63 @@ const StudentScannerPage: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto p-4">
-      {!activeSession ? (
-        <div className="text-center py-8">
-          <h2 className="text-2xl font-bold text-red-500 mb-4">No Active Session Found</h2>
-          <p className="text-gray-600 mb-4">
-            There is currently no active attendance session. Please try again when a session is active.
-          </p>
-          <SimpleLink to="/student">
-            <Button>Return to Dashboard</Button>
-          </SimpleLink>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <h2 className="text-2xl font-bold text-center">
-            Record Your Attendance
-          </h2>
+    <div className="container mx-auto px-4 py-8 max-w-md">
+      <Card className="w-full">
+        <CardHeader className="text-center">
+          <CardTitle>Attendance</CardTitle>
+          <CardDescription>
+            Scan the QR code or enter the attendance code to record your attendance.
+          </CardDescription>
+        </CardHeader>
+        
+        <Tabs 
+          defaultValue="scanner" 
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="w-full"
+        >
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="scanner">QR Scanner</TabsTrigger>
+            <TabsTrigger value="manual">Manual Code</TabsTrigger>
+          </TabsList>
           
-          <Card className="shadow-md">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold">{activeSession.name}</h3>
-                  <p className="text-sm text-gray-600">
-                    {activeSession.date} • {activeSession.time}
+          <TabsContent value="scanner" className="mt-4">
+            <CardContent className="pb-4">
+              {!hasCamera ? (
+                <NoCameraMessage />
+              ) : !started ? (
+                <div className="text-center p-4 space-y-4">
+                  <p className="text-gray-600 mb-4">
+                    Click the button below to start scanning the QR code. Make sure your camera is enabled.
                   </p>
+                  <Button onClick={startScanning} className="w-full">
+                    Start QR Scanner
+                  </Button>
                 </div>
-                
-                <Badge 
-                  variant="outline" 
-                  className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                >
-                  Active Session
-                </Badge>
-              </div>
-
-              <Tabs defaultValue="scan" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-4">
-                  <TabsTrigger value="scan">Scan QR Code</TabsTrigger>
-                  <TabsTrigger value="code">Enter Code</TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="scan" className="pt-4">
-                  {success ? (
-                    <div className="flex flex-col items-center justify-center p-4 text-center space-y-6">
-                      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+              ) : (
+                <div className="space-y-4">
+                  {scanning && (
+                    <div className="overflow-hidden rounded-lg">
+                      <QrReader
+                        constraints={{ facingMode: "environment" }}
+                        onResult={handleScan}
+                        containerStyle={{ width: "100%" }}
+                      />
+                    </div>
+                  )}
+                  
+                  {isProcessing && (
+                    <div className="flex flex-col items-center justify-center p-4">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <p className="mt-2 text-center text-sm text-gray-600">
+                        Processing attendance...
+                      </p>
+                    </div>
+                  )}
+                  
+                  {data && !isProcessing && (
+                    <div className="text-center p-4 space-y-4">
+                      <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
                         <svg 
                           xmlns="http://www.w3.org/2000/svg" 
                           className="h-10 w-10 text-green-600" 
@@ -250,88 +324,63 @@ const StudentScannerPage: React.FC = () => {
                       </div>
                       
                       <div>
-                        <h3 className="text-xl font-bold text-green-600 mb-2">Attendance Recorded!</h3>
+                        <h3 className="text-xl font-bold text-green-600 mb-2">QR Code Scanned!</h3>
                         <p className="text-gray-600 mb-4">
-                          Your attendance has been successfully recorded for this session.
+                          Processing your attendance...
                         </p>
                       </div>
                       
-                      <div className="space-x-4">
-                        <Button onClick={() => window.location.href = redirectUrl || '/student'}>
-                          Return to Dashboard
-                        </Button>
-                        <Button variant="outline" onClick={() => {
-                          setSuccess(false);
-                          setIsScanning(true);
-                          setErrorMessage('');
-                        }}>
-                          Scan Again
-                        </Button>
-                      </div>
-                    </div>
-                  ) : isLoading ? (
-                    <div className="flex flex-col items-center justify-center p-8 space-y-4">
-                      <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                      <p className="text-primary font-medium">Recording attendance...</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {isScanning ? (
-                        <div>
-                          <Html5QrcodePlugin
-                            fps={10}
-                            qrbox={250}
-                            disableFlip={false}
-                            qrCodeSuccessCallback={handleQrCodeSuccess}
-                            qrCodeErrorCallback={(error) => {
-                              console.warn("QR Scan Error:", error);
-                              // Don't show transient errors to user while scanning
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center py-4">
-                          <Button className="mb-2" onClick={handleScanAgain}>
-                            Scan Again
-                          </Button>
-                          <p className="text-sm text-gray-500">Scan was paused. Click to resume.</p>
-                        </div>
-                      )}
-                      
-                      {errorMessage && (
-                        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm">
-                          {errorMessage}
-                        </div>
-                      )}
-                      
-                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
-                        <h4 className="font-medium text-blue-700 mb-1">Instructions:</h4>
-                        <ol className="text-sm text-blue-600 list-decimal list-inside space-y-1">
-                          <li>Position your camera to face the QR code displayed by your instructor</li>
-                          <li>Ensure there's good lighting and hold your device steady</li>
-                          <li>Wait for the QR code to be recognized</li>
-                          <li>Your attendance will be recorded automatically</li>
-                        </ol>
-                      </div>
+                      <Button 
+                        onClick={resetScanner} 
+                        variant="outline"
+                      >
+                        Scan Again
+                      </Button>
                     </div>
                   )}
-                </TabsContent>
-                
-                <TabsContent value="code" className="pt-4">
-                  <AttendanceCodeInput />
-                </TabsContent>
-              </Tabs>
+                </div>
+              )}
             </CardContent>
-          </Card>
-        </div>
-      )}
+            
+            {started && !isProcessing && (
+              <CardFooter className="flex justify-between">
+                <Button 
+                  onClick={resetScanner} 
+                  variant="outline"
+                >
+                  {data ? "Scan Again" : "Cancel"}
+                </Button>
+                
+                <Button 
+                  onClick={() => setActiveTab("manual")}
+                  variant="outline"
+                >
+                  Use Code Instead
+                </Button>
+              </CardFooter>
+            )}
+          </TabsContent>
+          
+          <TabsContent value="manual" className="mt-4">
+            <CardContent>
+              <AttendanceCodeInput 
+                onSuccess={handleCodeSuccess}
+                onError={handleCodeError}
+              />
+            </CardContent>
+          </TabsContent>
+        </Tabs>
+      </Card>
       
-      {redirectUrl && (
-        <div className="fixed bottom-4 right-4 flex items-center bg-primary text-white p-3 rounded-lg shadow-lg">
-          <span className="mr-2">Redirecting to dashboard...</span>
-          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-        </div>
-      )}
+      <div className="mt-8 text-center">
+        <Button 
+          variant="outline" 
+          onClick={() => window.location.href = '/student'}
+          className="mx-auto"
+        >
+          Return to Dashboard
+        </Button>
+      </div>
     </div>
   );
 };

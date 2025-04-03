@@ -402,28 +402,131 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ];
       
       // Return both the summary data and the detailed records 
-      return res.status(200).json({
-        summary: {
-          total: 15,
-          attended: 12,
-          percentage: 80,
-          sessions: [
-            {
-              id: '1',
-              name: 'Robotics Workshop',
-              date: '2023-03-28',
-              attended: true
-            },
-            {
-              id: '2',
-              name: 'Programming Basics',
-              date: '2023-03-27',
-              attended: true
-            }
-          ]
+      return res.status(200).json(records);
+    }
+    
+    // Handle attendance reports endpoint
+    if (path === '/attendance/reports' && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      if (user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can view attendance reports' });
+      }
+      
+      // Get query parameters
+      const query = req.query || {};
+      const reportType = query.type as string || 'summary';
+      const dateRange = query.dateRange as string || '7days';
+      const format = query.format as string || 'json';
+      
+      // Mock student data for reports
+      const students = [
+        { id: 1, username: 'S1001', name: 'John Smith', sessionsAttended: 3, sessionsMissed: 3, attendanceRate: '50%' },
+        { id: 2, username: 'mohan', name: 'N. Mohan Sai Reddy', sessionsAttended: 0, sessionsMissed: 6, attendanceRate: '0%' },
+        { id: 3, username: 'vedhanth', name: 'A. Vedhanth', sessionsAttended: 0, sessionsMissed: 6, attendanceRate: '0%' },
+      ];
+      
+      // Mock session data for reports
+      const sessions = [
+        { 
+          id: 1, 
+          name: 'Robotics Workshop', 
+          date: '2023-04-01', 
+          totalStudents: 20, 
+          presentStudents: 15, 
+          absentStudents: 5, 
+          attendanceRate: '75%' 
         },
-        records: records
+        { 
+          id: 2, 
+          name: 'Programming Basics', 
+          date: '2023-04-02', 
+          totalStudents: 22, 
+          presentStudents: 18, 
+          absentStudents: 4, 
+          attendanceRate: '82%' 
+        }
+      ];
+      
+      if (format === 'xlsx') {
+        // For real implementation, we would generate an Excel file here
+        // For the demo, we'll just return a success message
+        return res.status(200).json({ 
+          success: true, 
+          message: 'Generating attendance-summary report for the last week in xlsx format',
+          downloadUrl: '/api/attendance/reports/download?type=' + reportType + '&dateRange=' + dateRange
+        });
+      }
+      
+      if (reportType === 'student') {
+        return res.status(200).json(students);
+      } else {
+        return res.status(200).json(sessions);
+      }
+    }
+    
+    // Handle attendance reports download endpoint
+    if (path.match(/^\/attendance\/reports\/download/) && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      if (user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can download attendance reports' });
+      }
+      
+      // In a real implementation, we would generate and return the file
+      // For the demo, we'll just return a success message
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Report downloaded successfully'
       });
+    }
+    
+    // Handle attendance endpoint (for admin)
+    if (path === '/attendance' && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      if (user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can view all attendance records' });
+      }
+      
+      // Return mock attendance records for all students
+      const records = [
+        {
+          id: '1',
+          sessionId: '1',
+          userId: 2,
+          username: 'S1001',
+          name: 'John Smith',
+          sessionName: 'Robotics Workshop',
+          date: '2023-04-01',
+          time: '10:00 AM',
+          status: 'present',
+          checkInTime: '2023-04-01T10:15:00Z'
+        },
+        {
+          id: '2',
+          sessionId: '2',
+          userId: 2,
+          username: 'S1001',
+          name: 'John Smith',
+          sessionName: 'Programming Basics',
+          date: '2023-04-02',
+          time: '2:00 PM',
+          status: 'present',
+          checkInTime: '2023-04-02T14:10:00Z'
+        }
+      ];
+      
+      return res.status(200).json(records);
     }
     
     // Handle session scanning
@@ -467,6 +570,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ 
         success: true, 
         redirectUrl 
+      });
+    }
+    
+    // Handle session code endpoint
+    if (path.match(/^\/sessions\/code\/[^\/]+$/) && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      const sessionId = path.split('/')[3];
+      
+      // Generate a random 6-digit code
+      const attendanceCode = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      return res.status(200).json({ 
+        attendanceCode,
+        expiresAt: new Date(Date.now() + 5 * 60000).toISOString() // 5 minutes from now
+      });
+    }
+    
+    // Add a catch-all handler for student/* paths to prevent 404 errors
+    if (path.startsWith('/student/') && req.method === 'GET') {
+      // For API requests to student paths, redirect to appropriate API endpoint
+      // This helps with client-side routing where path may be confused with API paths
+      return res.status(200).json({
+        redirect: true,
+        path: '/student'
       });
     }
     

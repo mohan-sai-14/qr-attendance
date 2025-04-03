@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npx vite build",
+    "build": "npx vite --config vite.config.js build",
     "tsc": "tsc",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "postinstall": "npx --yes autoprefixer@10.4.17 postcss@8.4.35 tailwindcss@3.4.1 vite@5.1.4"
+    "postinstall": "npx --yes autoprefixer@10.4.17 postcss@8.4.35 tailwindcss@3.4.1 vite@5.1.4 @vitejs/plugin-react@4.2.1 qrcode@1.5.3"
   },
   "browserslist": [
     ">0.2%",
@@ -54,6 +54,7 @@
     "@supabase/supabase-js": "^2.39.3",
     "@tanstack/react-query": "^5.24.1",
     "@types/recharts": "1.8.29",
+    "@vitejs/plugin-react": "4.2.1",
     "autoprefixer": "10.4.17",
     "axios": "1.8.4",
     "class-variance-authority": "^0.7.0",
@@ -67,6 +68,7 @@
     "input-otp": "^1.0.1",
     "lucide-react": "^0.350.0",
     "postcss": "8.4.35",
+    "qrcode": "1.5.3",
     "qrcode.react": "^3.1.0",
     "react": "^18.2.0",
     "react-day-picker": "^8.10.0",
@@ -91,7 +93,6 @@
     "@types/uuid": "9.0.8",
     "@typescript-eslint/eslint-plugin": "^7.0.2",
     "@typescript-eslint/parser": "^7.0.2",
-    "@vitejs/plugin-react": "^4.2.1",
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",

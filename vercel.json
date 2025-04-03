@@ -1,24 +1,5 @@
 {
   "version": 2,
   "buildCommand": "cd app/client && npm install && npm run build",
-  "outputDirectory": "app/client/dist",
-  "installCommand": "npm install",
-  "framework": "vite",
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "src": "/assets/(.*)",
-      "dest": "/assets/$1"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ]
+  "outputDirectory": "app/client/dist"
 } 

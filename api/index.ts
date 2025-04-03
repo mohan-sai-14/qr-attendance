@@ -287,32 +287,71 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
       
-      // For development and demo purposes, always return an active session
-      // This ensures the student dashboard shows a session to scan
-      const currentTime = new Date();
-      const hours = currentTime.getHours();
-      const minutes = currentTime.getMinutes();
-      const formattedTime = `${hours}:${String(minutes).padStart(2, '0')}`;
-      
-      const sessionEndTime = new Date(currentTime);
-      sessionEndTime.setMinutes(sessionEndTime.getMinutes() + 60); // 1 hour duration
-      
-      const activeSession = {
-        id: '1',
-        name: 'Robotics Workshop',
-        date: currentTime.toISOString().split('T')[0],
-        time: formattedTime,
-        duration: 60,
-        status: 'active',
-        attendance: 15,
-        total: 20,
-        is_active: true,
-        expires_at: sessionEndTime.toISOString(),
-        checked_in: true, // Indicate that the user is already checked in
-        check_in_time: new Date(currentTime.getTime() - 60000).toISOString() // Checked in 1 minute ago
-      };
-      
-      return res.status(200).json(activeSession);
+      try {
+        // Fetch the most recent session from Supabase
+        const { data: sessionData, error } = await supabase
+          .from('sessions')
+          .select('*')
+          .order('id', { ascending: false })
+          .limit(1)
+          .single();
+        
+        if (error) {
+          console.error('Error fetching session from Supabase:', error);
+          throw error;
+        }
+        
+        if (!sessionData) {
+          // Fallback to demo data if no session found
+          console.log('No session found in database, using fallback data');
+          const currentTime = new Date();
+          const sessionEndTime = new Date(currentTime);
+          sessionEndTime.setMinutes(sessionEndTime.getMinutes() + 60);
+          
+          return res.status(200).json({
+            id: '1',
+            name: 'No Active Session',
+            date: currentTime.toISOString().split('T')[0],
+            time: `${currentTime.getHours()}:${String(currentTime.getMinutes()).padStart(2, '0')}`,
+            duration: 60,
+            status: 'inactive',
+            attendance: 0,
+            total: 0,
+            is_active: false,
+            expires_at: sessionEndTime.toISOString()
+          });
+        }
+        
+        // Format the session data from Supabase
+        const formattedDate = new Date(sessionData.date).toISOString().split('T')[0];
+        
+        // Calculate session end time
+        const sessionStartTime = new Date(`${formattedDate}T${sessionData.time}`);
+        const sessionEndTime = new Date(sessionStartTime);
+        sessionEndTime.setMinutes(sessionStartTime.getMinutes() + sessionData.duration);
+        
+        // Check if session is still active
+        const isActive = sessionEndTime > new Date();
+        
+        // Return the formatted session
+        return res.status(200).json({
+          id: sessionData.id.toString(),
+          name: sessionData.name,
+          date: formattedDate,
+          time: sessionData.time,
+          duration: sessionData.duration,
+          status: isActive ? 'active' : 'completed',
+          attendance: 15, // Default value, would be calculated from attendance records
+          total: 20,      // Default value, would be calculated from enrollment
+          is_active: isActive,
+          expires_at: sessionEndTime.toISOString(),
+          checked_in: true, // Would be checked against attendance records
+          check_in_time: new Date(sessionStartTime.getTime() + 5 * 60000).toISOString() // 5 min after start
+        });
+      } catch (error) {
+        console.error('Error in active session endpoint:', error);
+        return res.status(500).json({ error: 'Failed to fetch active session' });
+      }
     }
     
     // Handle creating a new session

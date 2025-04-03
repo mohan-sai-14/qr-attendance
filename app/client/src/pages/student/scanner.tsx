@@ -11,7 +11,6 @@ import { useAuth } from "@/lib/auth";
 import { getActiveSession, recordAttendance } from "@/lib/api";
 import { createClient } from '@supabase/supabase-js';
 import { useToast } from "@/hooks/use-toast";
-import { QrReader } from "react-qr-reader";
 import { Loader2 } from "lucide-react";
 
 // Initialize Supabase client
@@ -102,81 +101,74 @@ const StudentScannerPage: React.FC = () => {
     checkAuth();
   }, [user, refreshUser]);
 
-  const handleScan = async (result: any, error: any) => {
+  const handleQrCodeSuccess = async (decodedText: string) => {
     if (isProcessing) return; // Prevent multiple simultaneous submissions
     
-    if (!!error) {
-      console.info("QR Scan error (this may be normal while scanning):", error);
-      return;
-    }
-
-    if (result?.text && !data) {
-      console.log("QR code scanned:", result.text);
-      setData(result.text);
-      setScanning(false);
+    console.log("QR code scanned:", decodedText);
+    setData(decodedText);
+    setScanning(false);
+    
+    try {
+      setIsProcessing(true);
       
-      try {
-        setIsProcessing(true);
-        
-        let sessionId = result.text;
-        
-        // Try to parse if it looks like a JSON string
-        if (result.text.startsWith('{') && result.text.endsWith('}')) {
-          try {
-            const parsedData = JSON.parse(result.text);
-            sessionId = parsedData.sessionId || parsedData.id || result.text;
-            console.log("Parsed session ID:", sessionId);
-          } catch (parseError) {
-            console.warn("Could not parse QR data as JSON, using raw text:", parseError);
-          }
+      let sessionId = decodedText;
+      
+      // Try to parse if it looks like a JSON string
+      if (decodedText.startsWith('{') && decodedText.endsWith('}')) {
+        try {
+          const parsedData = JSON.parse(decodedText);
+          sessionId = parsedData.sessionId || parsedData.id || decodedText;
+          console.log("Parsed session ID:", sessionId);
+        } catch (parseError) {
+          console.warn("Could not parse QR data as JSON, using raw text:", parseError);
         }
-        
-        const response = await fetch('/api/scan', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            sessionId,
-            userId: user?.id || 3,
-            username: user?.username || 'student',
-            timestamp: new Date().toISOString()
-          }),
-          credentials: 'include'
-        });
-        
-        const result = await response.json();
-        
-        if (!response.ok) {
-          console.error("Error recording attendance:", result);
-          toast({
-            title: "Failed to Record Attendance",
-            description: result.error || result.message || "Unable to record attendance. Please try again.",
-            variant: "destructive"
-          });
-          return;
-        }
-        
+      }
+      
+      const response = await fetch('/api/scan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sessionId,
+          userId: user?.id || 3,
+          username: user?.username || 'student',
+          timestamp: new Date().toISOString()
+        }),
+        credentials: 'include'
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error("Error recording attendance:", result);
         toast({
-          title: "Attendance Recorded",
-          description: "Your attendance has been successfully recorded!"
-        });
-        
-        // Redirect after successful scan if a redirect URL is provided
-        if (result.redirectUrl) {
-          window.location.href = result.redirectUrl;
-        }
-        
-      } catch (error) {
-        console.error("Error processing QR code:", error);
-        toast({
-          title: "Error",
-          description: "Failed to process QR code. Please try again or use manual code entry.",
+          title: "Failed to Record Attendance",
+          description: result.error || result.message || "Unable to record attendance. Please try again.",
           variant: "destructive"
         });
-      } finally {
-        setIsProcessing(false);
+        return;
       }
+      
+      toast({
+        title: "Attendance Recorded",
+        description: "Your attendance has been successfully recorded!"
+      });
+      
+      // Redirect after successful scan if a redirect URL is provided
+      if (result.redirectUrl) {
+        window.location.href = result.redirectUrl;
+      }
+      
+    } catch (error) {
+      console.error("Error processing QR code:", error);
+      toast({
+        title: "Error",
+        description: "Failed to process QR code. Please try again or use manual code entry.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -287,10 +279,15 @@ const StudentScannerPage: React.FC = () => {
                 <div className="space-y-4">
                   {scanning && (
                     <div className="overflow-hidden rounded-lg">
-                      <QrReader
-                        constraints={{ facingMode: "environment" }}
-                        onResult={handleScan}
-                        containerStyle={{ width: "100%" }}
+                      <Html5QrcodePlugin
+                        fps={10}
+                        qrbox={250}
+                        disableFlip={false}
+                        qrCodeSuccessCallback={handleQrCodeSuccess}
+                        qrCodeErrorCallback={(error) => {
+                          console.warn("QR Scan Error:", error);
+                          // Don't show transient errors to user while scanning
+                        }}
                       />
                     </div>
                   )}

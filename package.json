@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc && cd app/client && npm run build",
     "start": "node dist/api/index.js",
-    "postinstall": "cd app/client && npm install"
+    "postinstall": "cd app/client && npm install && npx --yes autoprefixer@10.4.17 postcss@8.4.35 tailwindcss@3.4.1 vite@5.1.4 @vitejs/plugin-react@4.2.1 qrcode@1.5.3 terser@5.26.0"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
@@ -18,7 +18,9 @@
     "express": "^4.18.2",
     "express-session": "^1.17.3",
     "node-fetch": "^3.3.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@vitejs/plugin-react": "4.2.1",
+    "terser": "5.26.0"
   },
   "devDependencies": {
     "@vercel/node": "^3.0.24"

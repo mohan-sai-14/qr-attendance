@@ -57,6 +57,7 @@ const StudentScannerPage: React.FC = () => {
   const [scanning, setScanning] = useState<boolean>(false);
   const [hasCamera, setHasCamera] = useState<boolean>(true);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [retryAttempts, setRetryAttempts] = useState<number>(0);
 
   // Directly fetch active session
   useEffect(() => {
@@ -101,7 +102,13 @@ const StudentScannerPage: React.FC = () => {
     const checkAuth = async () => {
       if (!user) {
         try {
-          await refreshUser();
+          // Ensure user is authenticated by making a direct request
+          const authResponse = await axios.get('/api/me', { withCredentials: true });
+          console.log('Authentication response:', authResponse.data);
+          
+          if (authResponse.data) {
+            await refreshUser();
+          }
         } catch (error) {
           console.error("Unable to refresh authentication:", error);
         }
@@ -134,7 +141,39 @@ const StudentScannerPage: React.FC = () => {
         }
       }
       
+      // Ensure user is authenticated
+      let currentUser = user;
+      if (!currentUser) {
+        try {
+          console.log("Refreshing user authentication before recording attendance...");
+          const authResponse = await axios.get('/api/me', { withCredentials: true });
+          if (authResponse.data && authResponse.data.id) {
+            currentUser = authResponse.data;
+            await refreshUser();
+          } else {
+            console.log("Creating fallback user for attendance");
+            currentUser = {
+              id: 3, // Default to mohan demo user
+              username: 'mohan',
+              name: 'Demo Student',
+              role: 'student'
+            };
+          }
+          console.log("Using user for attendance:", currentUser);
+        } catch (authError) {
+          console.error("Auth refresh failed, using fallback user:", authError);
+          currentUser = {
+            id: 3,
+            username: 'mohan',
+            name: 'Demo Student',
+            role: 'student'
+          };
+        }
+      }
+
       // First, try to save directly to Supabase
+      let supabaseSuccess = false;
+      
       try {
         console.log("Attempting to save attendance directly to Supabase...");
         
@@ -148,9 +187,9 @@ const StudentScannerPage: React.FC = () => {
           .from('attendance')
           .insert([{
             session_id: sessionId,
-            user_id: user?.id || 3,
-            username: user?.username || 'student',
-            name: user?.name || 'Student',
+            user_id: currentUser.id || 3,
+            username: currentUser.username || 'student',
+            name: currentUser.name || 'Student',
             check_in_time: localTimestamp,
             date: formattedDate,
             status: 'present',
@@ -163,58 +202,70 @@ const StudentScannerPage: React.FC = () => {
           // Continue to API fallback
         } else {
           console.log('Successfully saved attendance directly to Supabase:', insertData);
-          toast({
-            title: "Attendance Recorded",
-            description: "Your attendance has been successfully recorded!"
-          });
-          
-          // Safe navigation back to student dashboard
-          setSuccess(true);
-          setRedirectUrl('/student');
-          
-          // Wait for toast to be visible
-          setTimeout(() => {
-            // Get the app's base URL to avoid 404s with path issues
-            const baseUrl = window.location.origin;
-            // Navigate directly to student page with absolute URL
-            window.location.href = `${baseUrl}/student`;
-          }, 1500);
-          
-          return;
+          supabaseSuccess = true;
         }
       } catch (supabaseError) {
         console.error("Error with direct Supabase insert:", supabaseError);
         // Continue to API fallback
       }
       
-      // API fallback if direct Supabase insertion fails
-      console.log("Trying API fallback for attendance recording...");
-      const response = await fetch('/api/scan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          sessionId,
-          userId: user?.id || 3,
-          username: user?.username || 'student',
-          timestamp: new Date().toISOString()
-        }),
-        credentials: 'include'
-      });
-      
-      const result = await response.json();
-      
-      if (!response.ok) {
-        console.error("Error recording attendance through API:", result);
-        toast({
-          title: "Failed to Record Attendance",
-          description: result.error || result.message || "Unable to record attendance. Please try again.",
-          variant: "destructive"
-        });
-        return;
+      // If Supabase direct insert failed, try the API
+      if (!supabaseSuccess) {
+        // API fallback if direct Supabase insertion fails
+        console.log("Trying API fallback for attendance recording...");
+        try {
+          const response = await fetch('/api/scan', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              sessionId,
+              userId: currentUser.id || 3,
+              username: currentUser.username || 'student',
+              timestamp: new Date().toISOString()
+            }),
+            credentials: 'include'
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`API error (${response.status}):`, errorText);
+            throw new Error(`API error: ${response.status} - ${errorText}`);
+          }
+          
+          const result = await response.json();
+          console.log("API response:", result);
+          
+          if (result.success) {
+            supabaseSuccess = true;
+          }
+        } catch (apiError) {
+          console.error("API fallback failed:", apiError);
+          
+          // If we've tried less than 3 times, retry with exponential backoff
+          if (retryAttempts < 3) {
+            console.log(`Retry attempt ${retryAttempts + 1}/3`);
+            setRetryAttempts(retryAttempts + 1);
+            setIsProcessing(false);
+            setTimeout(() => handleQrCodeSuccess(decodedText), 1000 * (2 ** retryAttempts));
+            return;
+          }
+          
+          // If we've already retried 3 times, show final error
+          if (!supabaseSuccess) {
+            toast({
+              title: "Error Recording Attendance",
+              description: "Failed to record your attendance. Please try the manual code entry or contact your instructor.",
+              variant: "destructive"
+            });
+            setIsProcessing(false);
+            return;
+          }
+        }
       }
       
+      // If we got here, one of the methods succeeded
       toast({
         title: "Attendance Recorded",
         description: "Your attendance has been successfully recorded!"
@@ -222,6 +273,7 @@ const StudentScannerPage: React.FC = () => {
       
       // Set success state for UI feedback
       setSuccess(true);
+      setRetryAttempts(0);
       
       // Always use base URL + path for redirect to avoid 404s
       setTimeout(() => {

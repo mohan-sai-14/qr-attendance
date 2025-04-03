@@ -1150,23 +1150,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.log('Inserting attendance record:', attendanceData);
         
         let insertSuccess = false;
+        let insertError = null;
+        let maxRetries = 3;
+        let retryCount = 0;
         
-        try {
-          const { data, error } = await supabase
-            .from('attendance')
-            .insert(attendanceData)
-            .select();
+        // Use retry logic for database insertion
+        while (!insertSuccess && retryCount < maxRetries) {
+          try {
+            const { data, error } = await supabase
+              .from('attendance')
+              .insert(attendanceData)
+              .select();
+              
+            if (error) {
+              console.error(`Error inserting attendance record (attempt ${retryCount + 1}/${maxRetries}):`, error);
+              insertError = error;
+              retryCount++;
+              
+              // Wait before retrying (exponential backoff)
+              if (retryCount < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+              }
+            } else {
+              console.log('Successfully inserted attendance record in Supabase:', data);
+              insertSuccess = true;
+            }
+          } catch (dbError) {
+            console.error(`Exception during attendance record insertion (attempt ${retryCount + 1}/${maxRetries}):`, dbError);
+            insertError = dbError;
+            retryCount++;
             
-          if (error) {
-            console.error('Error inserting attendance record in Supabase:', error);
-            // We'll continue and use the in-memory storage as fallback
-          } else {
-            console.log('Successfully inserted attendance record in Supabase:', data);
-            insertSuccess = true;
+            // Wait before retrying
+            if (retryCount < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+            }
           }
-        } catch (dbError) {
-          console.error('Exception during attendance record insertion:', dbError);
-          // Continue with fallback behavior
         }
         
         // Always record in local memory as well (for backup and demo purposes)
@@ -1180,6 +1198,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           databaseInserted: insertSuccess
         });
         
+        // If all database attempts failed but we have memory record, still return success
+        // but indicate the database insertion failed
+        if (!insertSuccess) {
+          console.warn('All database insertion attempts failed. Attendance saved only in memory.');
+        }
+        
         // Build and return response
         const baseUrl = req.headers.host?.includes('localhost') 
           ? 'http://localhost:3000' 
@@ -1191,7 +1215,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             ? 'Attendance recorded successfully' 
             : 'Attendance recorded (database update pending)',
           redirectUrl: `${baseUrl}/student`,
-          insertedInDatabase: insertSuccess
+          insertedInDatabase: insertSuccess,
+          error: insertSuccess ? null : (insertError?.message || 'Unknown database error')
         });
       } catch (error) {
         console.error('Error recording attendance:', error);
@@ -1207,9 +1232,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           error: true
         });
         
+        // Log detailed error information for troubleshooting
+        console.error('Detailed error info:', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : null,
+          user: user ? { id: user.id, username: user.username } : 'No user',
+          sessionId,
+          timestamp
+        });
+        
         return res.status(500).json({ 
           error: 'Failed to record attendance',
-          message: error instanceof Error ? error.message : 'Unknown error'
+          message: error instanceof Error ? error.message : 'Unknown error',
+          success: false,
+          // Include redirect URL even in error case to avoid leaving users stranded
+          redirectUrl: req.headers.host?.includes('localhost') 
+            ? 'http://localhost:3000/student' 
+            : 'https://qr-attendance-gules.vercel.app/student'
         });
       }
     }

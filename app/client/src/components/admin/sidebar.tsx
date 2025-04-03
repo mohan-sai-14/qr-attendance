@@ -7,7 +7,8 @@ import {
   Users, 
   FileText,
   X,
-  TestTube
+  TestTube,
+  BookOpen
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -53,6 +54,7 @@ export default function Sidebar({ isOpen, setIsOpen, activeTab }: SidebarProps) 
     { path: "/admin/attendance", label: "Attendance", icon: <ClipboardCheck className="h-5 w-5" /> },
     { path: "/admin/students", label: "Students", icon: <Users className="h-5 w-5" /> },
     { path: "/admin/reports", label: "Reports", icon: <FileText className="h-5 w-5" /> },
+    { path: "/admin/tutorial", label: "Tutorial", icon: <BookOpen className="h-5 w-5" /> },
   ];
 
   const sidebarVariants = {

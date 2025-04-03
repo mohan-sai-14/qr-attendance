@@ -16,6 +16,7 @@ import Attendance from "@/pages/admin/attendance";
 import Students from "@/pages/admin/students";
 import Reports from "@/pages/admin/reports";
 import QRTest from "@/pages/admin/qr-test";
+import Tutorial from "@/pages/admin/tutorial";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
@@ -117,16 +118,19 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!user) {
+      console.log("No user found, redirecting to login");
       setLocation("/");
+      return;
     } else if (user.role !== "admin") {
+      console.log("User is not admin, redirecting to student dashboard");
       setLocation("/student");
+      return;
     }
-  }, [user, setLocation]);
-
-  useEffect(() => {
+    
+    // Only proceed if user is authenticated and is an admin
     const path = location.split("/")[2] || "home";
     setActiveTab(path);
-  }, [location]);
+  }, [user, setLocation, location]);
 
   // Close sidebar and dropdowns when clicking outside
   useEffect(() => {
@@ -162,7 +166,8 @@ export default function AdminDashboard() {
     console.log("Toggle sidebar clicked, new state:", !sidebarOpen);
   };
 
-  if (!user) {
+  // Return null if no user or not admin to prevent any flash of content
+  if (!user || user.role !== "admin") {
     return null;
   }
 
@@ -383,6 +388,7 @@ export default function AdminDashboard() {
           {activeTab === "attendance" && <Attendance />}
           {activeTab === "students" && <Students />}
           {activeTab === "reports" && <Reports />}
+          {activeTab === "tutorial" && <Tutorial />}
             </motion.div>
           </div>
         </main>

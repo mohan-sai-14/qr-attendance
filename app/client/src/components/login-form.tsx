@@ -57,6 +57,11 @@ export default function LoginForm() {
   const [activeTab, setActiveTab] = useState("student");
   const [logoError, setLogoError] = useState(false);
 
+  // Clear any potentially stale auth data on component mount
+  useEffect(() => {
+    localStorage.removeItem('userData');
+  }, []);
+
   // Auto-fill credentials based on active tab
   const handleTabChange = (value: string) => {
     setActiveTab(value);
@@ -82,19 +87,11 @@ export default function LoginForm() {
       console.log("Submitting login form for:", values.username);
       const userData = await login(values.username, values.password);
       
-      // Check if using fallback login
-      if (userData && !userData.id && values.username === "S1001" || values.username === "admin") {
-        setUsingFallback(true);
-        toast({
-          title: "Login successful (offline mode)",
-          description: "Connected in limited functionality mode",
-        });
-      } else {
-        toast({
-          title: "Login successful",
-          description: `Welcome back, ${userData.name}!`,
-        });
-      }
+      // Toast success message
+      toast({
+        title: "Login successful",
+        description: `Welcome back, ${userData.name}!`,
+      });
       // Auth redirection is handled in the App component
     } catch (error: any) {
       console.error("Login form error:", error);
@@ -102,9 +99,7 @@ export default function LoginForm() {
       // Check for specific error types
       let errorMessage: string;
       
-      if (error.message?.includes("Server returned invalid format")) {
-        errorMessage = "Server error. Please contact support.";
-      } else if (error.message?.includes("Network Error") || !navigator.onLine) {
+      if (error.message?.includes("Network Error") || !navigator.onLine) {
         errorMessage = "Network error. Check your internet connection.";
       } else {
         errorMessage = error.message || "Invalid credentials. Please try again.";

@@ -11,9 +11,14 @@ export function getApiUrl(path: string): string {
     return `http://localhost:3001${path}`;
   }
   
-  // For production, check if we have a configured API URL
-  const apiBase = import.meta.env.VITE_API_URL || '';
-  return `${apiBase}${path}`;
+  // For production, ensure we have the /api prefix
+  // This ensures that the API request goes to the correct serverless function
+  if (!path.startsWith('/api')) {
+    return `/api${path}`;
+  }
+  
+  // Already has the correct prefix
+  return path;
 }
 
 /**

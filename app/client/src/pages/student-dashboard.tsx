@@ -15,22 +15,24 @@ export default function StudentDashboard() {
   const [location] = useLocation();
   const [activeTab, setActiveTab] = useState("home");
 
-  // Handle tab change based on location
+  // Redirect based on user role
   useEffect(() => {
+    if (!user) {
+      console.log("No user found, redirecting to login");
+      setLocation("/");
+      return;
+    } else if (user.role !== "student") {
+      console.log("User is not a student, redirecting to admin dashboard");
+      setLocation("/admin");
+      return;
+    }
+    
+    // Only proceed with setting the active tab if authenticated as a student
     const path = location.split("/")[2] || "home";
     if (path !== activeTab) {
       setActiveTab(path);
     }
-  }, [location, activeTab]);
-
-  // Redirect based on user role
-  useEffect(() => {
-    if (!user) {
-      setLocation("/");
-    } else if (user.role !== "student") {
-      setLocation("/admin");
-    }
-  }, [user, setLocation]);
+  }, [user, setLocation, location, activeTab]);
 
   const handleTabChange = (value: string) => {
     if (value !== activeTab) {
@@ -39,6 +41,7 @@ export default function StudentDashboard() {
     }
   };
 
+  // Return null if no user or not a student to prevent any flash of content
   if (!user || user.role !== "student") {
     return null;
   }

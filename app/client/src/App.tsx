@@ -16,17 +16,35 @@ function Router() {
   const { user, isLoading } = useAuth();
   const [location, setLocation] = useLocation();
 
+  // First useEffect: Handle authentication redirects
   useEffect(() => {
+    console.log("Auth state:", { user, isLoading, location });
+    
     if (!isLoading) {
-      if (!user && location !== "/") {
-        setLocation("/");
-      } else if (user) {
-        if (location === "/") {
-          if (user.role === "admin") {
-            setLocation("/admin");
-          } else {
-            setLocation("/student");
-          }
+      if (!user) {
+        // If not logged in, redirect to login page
+        if (location !== "/") {
+          console.log("User not authenticated, redirecting to login page");
+          setLocation("/");
+        }
+      } else if (user && location === "/") {
+        // If logged in and on home/login page, redirect to appropriate dashboard
+        console.log("User authenticated, redirecting to dashboard");
+        if (user.role === "admin") {
+          setLocation("/admin");
+        } else {
+          setLocation("/student");
+        }
+      } else if (
+        (user.role === "admin" && location.startsWith("/student")) ||
+        (user.role === "student" && location.startsWith("/admin"))
+      ) {
+        // Prevent accessing wrong dashboard based on role
+        console.log("User tried to access restricted dashboard");
+        if (user.role === "admin") {
+          setLocation("/admin");
+        } else {
+          setLocation("/student");
         }
       }
     }
@@ -81,19 +99,19 @@ function Router() {
       <Route path="/" component={Login} />
       {/* Handle exact admin route */}
       <Route path="/admin">
-        {(params) => <AdminDashboard />}
+        {(params) => user ? <AdminDashboard /> : <Login />}
       </Route>
       {/* Handle admin subroutes like /admin/something */}
       <Route path="/admin/:tab">
-        {(params) => <AdminDashboard />}
+        {(params) => user ? <AdminDashboard /> : <Login />}
       </Route>
       {/* Handle exact student route */}
       <Route path="/student">
-        {(params) => <StudentDashboard />}
+        {(params) => user ? <StudentDashboard /> : <Login />}
       </Route>
       {/* Handle student subroutes like /student/something */}
       <Route path="/student/:tab">
-        {(params) => <StudentDashboard />}
+        {(params) => user ? <StudentDashboard /> : <Login />}
       </Route>
       <Route path="/:rest*">
         {(params) => <NotFound />}

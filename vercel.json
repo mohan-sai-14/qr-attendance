@@ -9,23 +9,23 @@
       "dest": "/api/index.ts"
     },
     {
-      "src": "/static/(.*)",
-      "dest": "/app/client/dist/static/$1"
+      "handle": "filesystem"
     },
     {
       "src": "/assets/(.*)",
       "dest": "/app/client/dist/assets/$1"
     },
     {
-      "src": "/favicon.ico",
-      "dest": "/app/client/dist/favicon.ico"
+      "src": "/index\\..+\\.(js|css)",
+      "dest": "/app/client/dist/index.js"
     },
     {
-      "src": "/(student|admin|login|register)(.*)",
-      "dest": "/app/client/dist/index.html"
+      "src": "/(favicon.ico|logo.svg|manifest.json)",
+      "dest": "/app/client/dist/$1"
     },
     {
-      "handle": "filesystem"
+      "src": "/((?!api/).+\\..+)",
+      "dest": "/app/client/dist/$1"
     },
     {
       "src": "/(.*)",

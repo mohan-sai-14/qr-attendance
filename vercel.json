@@ -1,5 +1,18 @@
 {
   "version": 2,
   "buildCommand": "cd app/client && npm install && npm run build",
-  "outputDirectory": "app/client/dist"
+  "outputDirectory": "app/client/dist",
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.ts"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/app/client/dist/index.html"
+    }
+  ]
 } 

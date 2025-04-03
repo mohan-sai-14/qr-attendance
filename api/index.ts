@@ -1,84 +1,115 @@
-import express, { Request, Response, NextFunction } from 'express';
-import session from 'express-session';
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import express from 'express';
 import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import path from 'path';
-import { router } from './src/routes';
 
-// Load environment variables
 dotenv.config();
 
-const app = express();
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL || 'https://qwavakkbfpdgkvtctogx.supabase.co';
+const supabaseKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXZha2tiZnBkZ2t2dGN0b2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3MTE4MjYsImV4cCI6MjA1ODI4NzgyNn0.Kdwo9ICmcsHPhK_On6G73ccSPkcEqzAg2BtvblhD8co';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-// CORS configuration
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
-// Body parsing middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Add security headers
-app.use((req: Request, res: Response, next: NextFunction) => {
-  // Content Security Policy
+// Serverless function handler
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const { method, url, body } = req;
+  
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'self'; font-src 'self' data:; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
   );
   
-  // Log all incoming requests
-  console.log(`${req.method} ${req.path}`);
-  next();
-});
-
-// Session configuration
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax'
+  // Handle OPTIONS request
+  if (method === 'OPTIONS') {
+    return res.status(200).end();
   }
-}));
-
-// API routes
-app.use('/api', router);
-
-// Health check route
-app.get('/api/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok' });
-});
-
-// API 404 handler
-app.all('/api/*', (req: Request, res: Response) => {
-  res.status(404).json({
-    error: 'Not Found',
-    message: 'The requested API endpoint does not exist'
-  });
-});
-
-// Error handling middleware
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('Error:', err);
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message
-  });
-});
-
-// Only start the server in development
-if (process.env.NODE_ENV !== 'production') {
-  const port = process.env.PORT || 3000;
-  app.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
-  });
+  
+  // Extract endpoint from URL
+  const endpoint = url?.replace(/^\/api/, '') || '/';
+  
+  // Handle login endpoint
+  if (method === 'POST' && endpoint === '/login') {
+    try {
+      const { userId, password } = body;
+      
+      // Query the user table to check credentials
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', userId)
+        .single();
+        
+      if (error || !data) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+      
+      // Simple password check
+      if (data.password !== password) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+      
+      // Return user data without password
+      const { password: _, ...userWithoutPassword } = data;
+      return res.json(userWithoutPassword);
+    } catch (error) {
+      console.error('Login error:', error);
+      return res.status(500).json({ error: 'Server error during login' });
+    }
+  }
+  
+  // Handle me endpoint
+  if (method === 'GET' && endpoint === '/me') {
+    // In production, use session tokens/cookies
+    // For now, return a mock response
+    return res.json({ username: 'admin', name: 'Administrator', role: 'admin' });
+  }
+  
+  // Handle active session endpoint
+  if (method === 'GET' && endpoint === '/sessions/active') {
+    try {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+        
+      if (error) {
+        return res.status(404).json({ error: 'No active session found' });
+      }
+      
+      return res.json(data);
+    } catch (error) {
+      console.error('Error fetching active session:', error);
+      return res.status(500).json({ error: 'Server error' });
+    }
+  }
+  
+  // Handle sessions endpoint
+  if (method === 'GET' && endpoint === '/sessions') {
+    try {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (error) {
+        return res.status(500).json({ error: 'Error fetching sessions' });
+      }
+      
+      return res.json(data);
+    } catch (error) {
+      console.error('Error fetching sessions:', error);
+      return res.status(500).json({ error: 'Server error' });
+    }
+  }
+  
+  // Default 404 response for unhandled endpoints
+  return res.status(404).json({ error: 'Endpoint not found' });
 }
-
-export default app;

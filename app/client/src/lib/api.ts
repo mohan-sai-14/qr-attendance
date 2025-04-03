@@ -1,4 +1,7 @@
-export const API_BASE_URL = 'http://localhost:3001/api';
+// Determine the correct API base URL based on environment
+export const API_BASE_URL = import.meta.env.PROD 
+  ? '/api' // In production, use relative path which will be handled by Vercel
+  : 'http://localhost:3001/api'; // In development, use localhost
 
 export async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
   try {

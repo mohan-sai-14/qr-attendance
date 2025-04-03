@@ -1286,6 +1286,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
     
+    // Add special handler for /student and sub-paths for better SPA routing
+    if (path.startsWith('/student') && req.method === 'GET') {
+      // Handle client-side routes by redirecting to root
+      console.log(`Handling client-side route: ${path}`);
+      
+      // Return HTML redirect if Accept header includes text/html
+      const acceptHeader = req.headers.accept || '';
+      if (acceptHeader.includes('text/html')) {
+        res.setHeader('Content-Type', 'text/html');
+        return res.status(200).send(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <title>Redirecting...</title>
+              <meta http-equiv="refresh" content="0; URL=/">
+              <script>
+                window.location.href = "/";
+              </script>
+            </head>
+            <body>
+              <p>Redirecting to the app...</p>
+            </body>
+          </html>
+        `);
+      }
+      
+      // Return JSON response for API clients
+      return res.status(200).json({
+        redirect: true,
+        path: '/'
+      });
+    }
+    
     // Add a test session creation endpoint (for development purposes)
     if (path === '/create-test-session' && req.method === 'POST') {
       const user = getUserFromSession(req);

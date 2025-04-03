@@ -168,9 +168,16 @@ const StudentScannerPage: React.FC = () => {
             description: "Your attendance has been successfully recorded!"
           });
           
-          // Redirect to student dashboard with delay to allow toast to be seen
+          // Safe navigation back to student dashboard
+          setSuccess(true);
+          setRedirectUrl('/student');
+          
+          // Wait for toast to be visible
           setTimeout(() => {
-            window.location.href = '/student';
+            // Get the app's base URL to avoid 404s with path issues
+            const baseUrl = window.location.origin;
+            // Navigate directly to student page with absolute URL
+            window.location.href = `${baseUrl}/student`;
           }, 1500);
           
           return;
@@ -213,9 +220,13 @@ const StudentScannerPage: React.FC = () => {
         description: "Your attendance has been successfully recorded!"
       });
       
-      // Always use direct URL navigation rather than relying on redirect URL from API
+      // Set success state for UI feedback
+      setSuccess(true);
+      
+      // Always use base URL + path for redirect to avoid 404s
       setTimeout(() => {
-        window.location.href = '/student';
+        const baseUrl = window.location.origin;
+        window.location.href = `${baseUrl}/student`;
       }, 1500);
       
     } catch (error) {
@@ -248,9 +259,10 @@ const StudentScannerPage: React.FC = () => {
       description: "Your attendance has been successfully recorded!"
     });
     
-    // Use direct navigation instead of relying on redirectUrl
+    // Safe navigation approach
     setTimeout(() => {
-      window.location.href = '/student';
+      const baseUrl = window.location.origin;
+      window.location.href = `${baseUrl}/student`;
     }, 1500);
   };
 
@@ -294,7 +306,10 @@ const StudentScannerPage: React.FC = () => {
             There is currently no active attendance session. Please try again when a session is active.
           </p>
           <Button 
-            onClick={() => window.location.href = '/student'}
+            onClick={() => {
+              const baseUrl = window.location.origin;
+              window.location.href = `${baseUrl}/student`;
+            }}
           >
             Return to Dashboard
           </Button>
@@ -434,7 +449,10 @@ const StudentScannerPage: React.FC = () => {
       <div className="mt-8 text-center">
         <Button 
           variant="outline" 
-          onClick={() => window.location.href = '/student'}
+          onClick={() => {
+            const baseUrl = window.location.origin;
+            window.location.href = `${baseUrl}/student`;
+          }}
           className="mx-auto"
         >
           Return to Dashboard

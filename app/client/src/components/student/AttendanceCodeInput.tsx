@@ -90,7 +90,13 @@ const AttendanceCodeInput: React.FC<AttendanceCodeInputProps> = ({
             title: "Success",
             description: "Attendance recorded successfully!"
           });
-          onSuccess('/student');
+          
+          // Use baseUrl for safe navigation
+          setTimeout(() => {
+            const baseUrl = window.location.origin;
+            window.location.href = `${baseUrl}/student`;
+          }, 1500);
+          
           return;
         }
       } catch (supabaseError) {
@@ -123,7 +129,12 @@ const AttendanceCodeInput: React.FC<AttendanceCodeInputProps> = ({
       }
       
       console.log("Attendance recorded successfully with code:", result);
-      onSuccess(result.redirectUrl || '/student');
+      
+      // Use baseUrl for direct navigation rather than relying on redirectUrl
+      setTimeout(() => {
+        const baseUrl = window.location.origin;
+        window.location.href = `${baseUrl}/student`;
+      }, 1500);
       
     } catch (error) {
       console.error("Error recording attendance with code:", error);

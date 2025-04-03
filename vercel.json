@@ -2,28 +2,27 @@
   "version": 2,
   "buildCommand": "cd app/client && npm install && npm run build",
   "outputDirectory": "app/client/dist",
-  "rewrites": [
-    {
-      "source": "/student/:path*",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/admin/:path*",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/login",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/register",
-      "destination": "/index.html"
-    }
-  ],
+  "framework": "vite",
   "routes": [
     {
       "src": "/api/(.*)",
       "dest": "/api/index.ts"
+    },
+    {
+      "src": "/static/(.*)",
+      "dest": "/app/client/dist/static/$1"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "/app/client/dist/assets/$1"
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "/app/client/dist/favicon.ico"
+    },
+    {
+      "src": "/(student|admin|login|register)(.*)",
+      "dest": "/app/client/dist/index.html"
     },
     {
       "handle": "filesystem"

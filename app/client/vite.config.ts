@@ -27,6 +27,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
+          qr: ['qrcode', 'qrcode.react', 'html5-qrcode'],
           ui: [
             '@radix-ui/react-accordion',
             '@radix-ui/react-alert-dialog',

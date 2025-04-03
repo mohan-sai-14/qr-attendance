@@ -1,44 +1,34 @@
 {
   "version": 2,
-  "buildCommand": "cd app/client && npm install && npm run build",
-  "outputDirectory": "app/client/dist",
-  "installCommand": "npm install",
-  "functions": {
-    "api/index.ts": {
-      "memory": 1024,
-      "maxDuration": 10
+  "builds": [
+    {
+      "src": "app/client/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist",
+        "buildCommand": "npm install && npx vite build"
+      }
+    },
+    {
+      "src": "package.json",
+      "use": "@vercel/node"
     }
-  },
+  ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/index.ts"
+      "dest": "api/$1"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "app/client/dist/assets/$1"
     },
     {
       "handle": "filesystem"
     },
     {
-      "src": "/assets/(.*)",
-      "dest": "/assets/$1"
-    },
-    {
-      "src": "/static/(.*)",
-      "dest": "/static/$1"
-    },
-    {
-      "src": "/favicon.ico",
-      "dest": "/favicon.ico"
-    },
-    {
-      "src": "/(.*)\\.(?:js|css|png|jpg|jpeg|svg|gif)$",
-      "dest": "/$1"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "app/client/dist/index.html"
     }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  ]
 } 

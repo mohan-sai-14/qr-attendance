@@ -2,19 +2,8 @@
   "version": 2,
   "buildCommand": "cd app/client && npm install && npm run build",
   "outputDirectory": "app/client/dist",
-  "framework": "vite",
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/index.ts"
-    },
-    {
-      "source": "/(.*\\.(js|css|ico|png|jpg|svg|ttf|woff|woff2))",
-      "destination": "/app/client/dist/$1"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/app/client/dist/index.html"
-    }
+    { "source": "/api/(.*)", "destination": "/api/index.ts" },
+    { "source": "/(.*)", "destination": "/app/client/dist/index.html" }
   ]
 } 

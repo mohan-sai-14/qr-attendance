@@ -105,6 +105,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log(`API request: ${req.method} ${req.url}`);
   
   try {
+    // Ensure required tables exist in Supabase (will be skipped if tables already exist)
+    try {
+      // Try to create the sessions table if it doesn't exist
+      await supabase.rpc('create_table_if_not_exists', {
+        table_name: 'sessions',
+        table_definition: `
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          date DATE NOT NULL,
+          time TEXT NOT NULL,
+          duration INTEGER NOT NULL,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          created_by INTEGER
+        `
+      }).maybeSingle();
+      
+      // Try to create the attendance table if it doesn't exist
+      await supabase.rpc('create_table_if_not_exists', {
+        table_name: 'attendance',
+        table_definition: `
+          id SERIAL PRIMARY KEY,
+          session_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          username TEXT NOT NULL,
+          name TEXT NOT NULL,
+          check_in_time TIMESTAMPTZ DEFAULT NOW(),
+          date DATE NOT NULL,
+          status TEXT DEFAULT 'present',
+          session_name TEXT
+        `
+      }).maybeSingle();
+      
+      // Try to create the users table if it doesn't exist
+      await supabase.rpc('create_table_if_not_exists', {
+        table_name: 'users',
+        table_definition: `
+          id SERIAL PRIMARY KEY,
+          username TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          role TEXT NOT NULL
+        `
+      }).maybeSingle();
+      
+      console.log('Tables verified or created');
+    } catch (tableError) {
+      // If the RPC function doesn't exist or fails, handle silently
+      console.log('Table creation skipped:', tableError);
+    }
+    
     // Get path from URL
     const path = req.url?.split('/api')[1] || '/';
     
@@ -1070,8 +1120,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const { data, error } = await supabase
             .from('sessions')
             .select('*')
-            .eq('id', sessionId)
-            .single();
+            .eq('id', sessionId.toString())
+            .maybeSingle();
           
           if (error && error.code !== 'PGRST116') { // PGRST116 means no rows returned
             console.warn(`Error fetching session ${sessionId}:`, error);
@@ -1080,6 +1130,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             console.log('Found session data:', sessionData);
           } else {
             console.log(`Session ${sessionId} not found, will use fallback data`);
+            
+            // Try to insert a minimal session record if it doesn't exist
+            try {
+              console.log('Trying to create a minimal session record');
+              const { data: newSession, error: createError } = await supabase
+                .from('sessions')
+                .insert({
+                  id: sessionId,
+                  name: `Session ${sessionId}`,
+                  date: dateString,
+                  time: `${now.getHours()}:${now.getMinutes()}`,
+                  duration: 60,
+                  is_active: true,
+                  created_at: now.toISOString(),
+                })
+                .select()
+                .maybeSingle();
+                
+              if (createError) {
+                console.warn('Failed to create session record:', createError);
+              } else if (newSession) {
+                sessionData = newSession;
+                console.log('Created minimal session record:', newSession);
+              }
+            } catch (createSessionError) {
+              console.error('Error creating minimal session:', createSessionError);
+            }
           }
         } catch (fetchError) {
           console.error('Error during session lookup:', fetchError);
@@ -1092,9 +1169,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const { data, error } = await supabase
             .from('attendance')
             .select('*')
-            .eq('session_id', sessionId)
-            .eq('user_id', user.id)
-            .single();
+            .eq('session_id', sessionId.toString())
+            .eq('user_id', user.id.toString())
+            .maybeSingle();
           
           if (error && error.code !== 'PGRST116') { // PGRST116 means no rows returned
             console.warn(`Error checking existing attendance for user ${user.id}:`, error);
@@ -1135,16 +1212,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // Get session name from session data or fallback
         const sessionName = sessionData?.name || `Session ${sessionId}`;
         
-        // Insert new attendance record in Supabase
+        // Create simple string versions of all values to avoid type issues
         const attendanceData = {
-          session_id: sessionId,
-          user_id: user.id,
-          username: user.username,
-          name: user.name || user.username,
+          session_id: sessionId.toString(),
+          user_id: user.id.toString(),
+          username: user.username.toString(),
+          name: (user.name || user.username).toString(),
           check_in_time: isoTimestamp,
           date: dateString,
           status: 'present',
-          session_name: sessionName
+          session_name: sessionName.toString()
         };
         
         console.log('Inserting attendance record:', attendanceData);
@@ -1154,36 +1231,72 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         let maxRetries = 3;
         let retryCount = 0;
         
-        // Use retry logic for database insertion
+        // Try different insertion methods
         while (!insertSuccess && retryCount < maxRetries) {
           try {
-            const { data, error } = await supabase
-              .from('attendance')
-              .insert(attendanceData)
-              .select();
-              
-            if (error) {
-              console.error(`Error inserting attendance record (attempt ${retryCount + 1}/${maxRetries}):`, error);
-              insertError = error;
-              retryCount++;
-              
-              // Wait before retrying (exponential backoff)
-              if (retryCount < maxRetries) {
-                await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+            // Method 1: Standard insert
+            if (retryCount === 0) {
+              const { data, error } = await supabase
+                .from('attendance')
+                .insert(attendanceData)
+                .select();
+                
+              if (error) {
+                console.error(`Error using standard insert (attempt ${retryCount + 1}/${maxRetries}):`, error);
+                insertError = error;
+              } else {
+                console.log('Successfully inserted attendance record in Supabase (standard):', data);
+                insertSuccess = true;
+                continue;
               }
-            } else {
-              console.log('Successfully inserted attendance record in Supabase:', data);
-              insertSuccess = true;
             }
+            
+            // Method 2: Insert using upsert
+            if (retryCount === 1) {
+              const { data, error } = await supabase
+                .from('attendance')
+                .upsert(attendanceData)
+                .select();
+                
+              if (error) {
+                console.error(`Error using upsert (attempt ${retryCount + 1}/${maxRetries}):`, error);
+                insertError = error;
+              } else {
+                console.log('Successfully inserted attendance record in Supabase (upsert):', data);
+                insertSuccess = true;
+                continue;
+              }
+            }
+            
+            // Method 3: Use RPC call (if available)
+            if (retryCount === 2) {
+              try {
+                const { data, error } = await supabase.rpc('insert_attendance', attendanceData);
+                
+                if (error) {
+                  console.error(`Error using RPC (attempt ${retryCount + 1}/${maxRetries}):`, error);
+                  insertError = error;
+                } else {
+                  console.log('Successfully inserted attendance record in Supabase (RPC):', data);
+                  insertSuccess = true;
+                  continue;
+                }
+              } catch (rpcError) {
+                console.warn('RPC method not available:', rpcError);
+                insertError = rpcError;
+              }
+            }
+            
           } catch (dbError) {
             console.error(`Exception during attendance record insertion (attempt ${retryCount + 1}/${maxRetries}):`, dbError);
             insertError = dbError;
-            retryCount++;
-            
-            // Wait before retrying
-            if (retryCount < maxRetries) {
-              await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
-            }
+          }
+          
+          retryCount++;
+          
+          // Wait before retrying
+          if (!insertSuccess && retryCount < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
           }
         }
         
@@ -1202,6 +1315,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // but indicate the database insertion failed
         if (!insertSuccess) {
           console.warn('All database insertion attempts failed. Attendance saved only in memory.');
+        }
+        
+        // Try direct REST API call to Supabase as a last resort
+        if (!insertSuccess) {
+          try {
+            console.log('Attempting direct REST API call to Supabase');
+            const response = await fetch(`${supabaseUrl}/rest/v1/attendance`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': supabaseKey,
+                'Authorization': `Bearer ${supabaseKey}`,
+                'Prefer': 'return=representation'
+              },
+              body: JSON.stringify(attendanceData)
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log('Successfully inserted attendance using REST API:', data);
+              insertSuccess = true;
+            } else {
+              const errorData = await response.text();
+              console.error('Failed to insert using REST API:', response.status, errorData);
+            }
+          } catch (restError) {
+            console.error('Error with direct REST API call:', restError);
+          }
         }
         
         // Build and return response

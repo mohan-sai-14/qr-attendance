@@ -3,33 +3,18 @@
   "buildCommand": "cd app/client && npm install && npm run build",
   "outputDirectory": "app/client/dist",
   "framework": "vite",
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/index.ts"
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
     },
     {
-      "handle": "filesystem"
+      "source": "/(.*\\.(js|css|ico|png|jpg|svg|ttf|woff|woff2))",
+      "destination": "/app/client/dist/$1"
     },
     {
-      "src": "/assets/(.*)",
-      "dest": "/app/client/dist/assets/$1"
-    },
-    {
-      "src": "/index\\..+\\.(js|css)",
-      "dest": "/app/client/dist/index.js"
-    },
-    {
-      "src": "/(favicon.ico|logo.svg|manifest.json)",
-      "dest": "/app/client/dist/$1"
-    },
-    {
-      "src": "/((?!api/).+\\..+)",
-      "dest": "/app/client/dist/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/app/client/dist/index.html"
+      "source": "/(.*)",
+      "destination": "/app/client/dist/index.html"
     }
   ]
 } 

@@ -277,8 +277,15 @@ const StudentScannerPage: React.FC = () => {
       
       // Always use base URL + path for redirect to avoid 404s
       setTimeout(() => {
+        // Use window.location.replace for more reliable navigation
         const baseUrl = window.location.origin;
-        window.location.href = `${baseUrl}/student`;
+        // First navigate to root to avoid 404s
+        window.location.replace(baseUrl);
+        
+        // Then after a short delay, navigate to student dashboard
+        setTimeout(() => {
+          window.location.replace(`${baseUrl}/student`);
+        }, 300);
       }, 1500);
       
     } catch (error) {

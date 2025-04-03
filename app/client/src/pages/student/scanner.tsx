@@ -179,9 +179,9 @@ const StudentScannerPage: React.FC = () => {
           <p className="text-gray-600 mb-4">
             There is currently no active attendance session. Please try again when a session is active.
           </p>
-          <Button onClick={() => window.location.href = '/student'}>
-            Return to Dashboard
-          </Button>
+          <SimpleLink to="/student">
+            <Button>Return to Dashboard</Button>
+          </SimpleLink>
         </div>
       </div>
     );
@@ -195,9 +195,9 @@ const StudentScannerPage: React.FC = () => {
           <p className="text-gray-600 mb-4">
             There is currently no active attendance session. Please try again when a session is active.
           </p>
-          <Button onClick={() => window.location.href = '/student'}>
-            Return to Dashboard
-          </Button>
+          <SimpleLink to="/student">
+            <Button>Return to Dashboard</Button>
+          </SimpleLink>
         </div>
       ) : (
         <div className="space-y-6">

@@ -12,7 +12,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import axios from 'axios';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -20,8 +22,63 @@ interface SidebarProps {
   activeTab: string;
 }
 
+interface ActiveSession {
+  id: string;
+  name: string;
+  expires_at: string;
+  is_active: boolean;
+}
+
 export default function Sidebar({ isOpen, setIsOpen, activeTab }: SidebarProps) {
   const [location] = useLocation();
+
+  // Fetch active session data
+  const { data: activeSession, isLoading } = useQuery<ActiveSession>({
+    queryKey: ['activeSession'],
+    queryFn: async () => {
+      try {
+        const response = await axios.get('/api/sessions/active');
+        console.log('Active session data (sidebar):', response.data);
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching active session:', error);
+        return null;
+      }
+    },
+    refetchInterval: 60000, // Refetch every minute
+  });
+
+  // Calculate time remaining for active session
+  const [timeRemaining, setTimeRemaining] = useState<string>('');
+
+  useEffect(() => {
+    if (!activeSession?.expires_at) return;
+
+    const calculateTimeRemaining = () => {
+      const expiresAt = new Date(activeSession.expires_at);
+      const now = new Date();
+      const diffMs = expiresAt.getTime() - now.getTime();
+      
+      if (diffMs <= 0) return 'Ended';
+      
+      const diffMinutes = Math.floor(diffMs / 60000);
+      if (diffMinutes < 60) {
+        return `${diffMinutes} minute${diffMinutes !== 1 ? 's' : ''}`;
+      } else {
+        const hours = Math.floor(diffMinutes / 60);
+        const minutes = diffMinutes % 60;
+        return `${hours} hour${hours !== 1 ? 's' : ''} ${minutes > 0 ? `${minutes} min` : ''}`;
+      }
+    };
+
+    setTimeRemaining(calculateTimeRemaining());
+    
+    const interval = setInterval(() => {
+      setTimeRemaining(calculateTimeRemaining());
+    }, 60000); // Update every minute
+    
+    return () => clearInterval(interval);
+  }, [activeSession]);
 
   // Log state changes for debugging
   useEffect(() => {
@@ -175,9 +232,9 @@ export default function Sidebar({ isOpen, setIsOpen, activeTab }: SidebarProps) 
               <p className="text-xs text-foreground/50 mb-2">Active Session</p>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                <p className="text-sm font-medium">Robotics Club Meeting</p>
+                <p className="text-sm font-medium">{activeSession?.name || 'Loading...'}</p>
               </div>
-              <p className="text-xs text-foreground/50 mt-2">Ends in 45 minutes</p>
+              <p className="text-xs text-foreground/50 mt-2">Ends in {timeRemaining || 'Loading...'}</p>
             </div>
           </motion.div>
         </motion.aside>

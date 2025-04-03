@@ -290,20 +290,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // For development and demo purposes, always return an active session
       // This ensures the student dashboard shows a session to scan
       const currentTime = new Date();
-      const sessionEndTime = new Date();
+      const hours = currentTime.getHours();
+      const minutes = currentTime.getMinutes();
+      const formattedTime = `${hours}:${String(minutes).padStart(2, '0')}`;
+      
+      const sessionEndTime = new Date(currentTime);
       sessionEndTime.setMinutes(sessionEndTime.getMinutes() + 60); // 1 hour duration
       
       const activeSession = {
         id: '1',
         name: 'Robotics Workshop',
         date: currentTime.toISOString().split('T')[0],
-        time: `${currentTime.getHours()}:${String(currentTime.getMinutes()).padStart(2, '0')}`,
+        time: formattedTime,
         duration: 60,
         status: 'active',
         attendance: 15,
         total: 20,
         is_active: true,
-        expires_at: sessionEndTime.toISOString()
+        expires_at: sessionEndTime.toISOString(),
+        checked_in: true, // Indicate that the user is already checked in
+        check_in_time: new Date(currentTime.getTime() - 60000).toISOString() // Checked in 1 minute ago
       };
       
       return res.status(200).json(activeSession);
@@ -675,6 +681,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         success: true,
         user: user || demoUsers.mohan,
         isDemo: !user
+      });
+    }
+    
+    // Add catch-all handlers for specific student paths that might be causing issues
+    if ((path === '/student/1' || path === '/student/dashboard') && req.method === 'GET') {
+      const baseUrl = req.headers.host?.includes('localhost')
+        ? 'http://localhost:3000'
+        : 'https://qr-attendance-gules.vercel.app';
+        
+      return res.status(200).json({
+        redirect: true,
+        redirectUrl: `${baseUrl}/student`
       });
     }
     

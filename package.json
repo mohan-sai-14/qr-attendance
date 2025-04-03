@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cd app/client && npm run build",
     "start": "node dist/api/index.js",
     "postinstall": "cd app/client && npm install"
   },

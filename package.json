@@ -2,7 +2,7 @@
   "name": "qr-attendance",
   "version": "1.0.0",
   "description": "QR-based attendance tracking system",
-  "main": "app/api/index.ts",
+  "main": "api/index.ts",
   "scripts": {
     "build": "cd app/client && npm install && npm run build",
     "start": "node dist/server/index.js",

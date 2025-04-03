@@ -57,8 +57,31 @@ export default function LoginForm() {
   const [activeTab, setActiveTab] = useState("student");
   const [logoError, setLogoError] = useState(false);
 
-  // Clear any potentially stale auth data on component mount
+  // Check API status when component mounts
   useEffect(() => {
+    const checkApiStatus = async () => {
+      try {
+        const response = await fetch('/api/status', {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          console.log('API is available and responding');
+        } else {
+          console.error('API status check failed:', response.status);
+          setLoginError('API service is not responding. Please try again later.');
+        }
+      } catch (error) {
+        console.error('API status check error:', error);
+        setLoginError('Unable to connect to the API. Please check your connection.');
+      }
+    };
+    
+    checkApiStatus();
+    // Also clear any stored auth data
     localStorage.removeItem('userData');
   }, []);
 

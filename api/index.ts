@@ -221,6 +221,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ]);
     }
     
+    // Handle active session endpoint
+    if (path === '/sessions/active' && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      // Return the first session as active for demo purposes
+      return res.status(200).json({
+        id: '1',
+        name: 'Robotics Workshop',
+        date: new Date().toISOString().split('T')[0],
+        time: '10:00 AM',
+        duration: 60,
+        status: 'active',
+        attendance: 15,
+        total: 20,
+        is_active: true,
+        expires_at: new Date(Date.now() + 3600000).toISOString() // 1 hour from now
+      });
+    }
+    
     // Handle creating a new session
     if (path === '/sessions' && req.method === 'POST') {
       const user = getUserFromSession(req);
@@ -339,25 +361,68 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(403).json({ error: 'Only students can view their attendance' });
       }
       
-      // Return mock attendance data
-      return res.status(200).json({
-        total: 15,
-        attended: 12,
-        percentage: 80,
-        sessions: [
-          {
+      // Return mock attendance data in the format expected by the frontend
+      const currentDate = new Date();
+      const oneDay = 24 * 60 * 60 * 1000; // milliseconds in a day
+      
+      // Create an array of mocked attendance records
+      const records = [
+        {
+          id: '1',
+          sessionId: '1',
+          userId: user.id,
+          username: user.username,
+          name: user.name,
+          sessionName: 'Robotics Workshop',
+          date: new Date(currentDate.getTime() - oneDay).toISOString().split('T')[0],
+          time: '10:00 AM',
+          status: 'present',
+          checkInTime: new Date(currentDate.getTime() - oneDay + 30 * 60000).toISOString(),
+          session: {
             id: '1',
-            name: 'Robotics Workshop',
-            date: '2023-03-28',
-            attended: true
-          },
-          {
-            id: '2',
-            name: 'Programming Basics',
-            date: '2023-03-27',
-            attended: true
+            name: 'Robotics Workshop'
           }
-        ]
+        },
+        {
+          id: '2',
+          sessionId: '2',
+          userId: user.id,
+          username: user.username,
+          name: user.name,
+          sessionName: 'Programming Basics',
+          date: new Date(currentDate.getTime() - 2 * oneDay).toISOString().split('T')[0],
+          time: '2:00 PM',
+          status: 'present',
+          checkInTime: new Date(currentDate.getTime() - 2 * oneDay + 15 * 60000).toISOString(),
+          session: {
+            id: '2',
+            name: 'Programming Basics'
+          }
+        }
+      ];
+      
+      // Return both the summary data and the detailed records 
+      return res.status(200).json({
+        summary: {
+          total: 15,
+          attended: 12,
+          percentage: 80,
+          sessions: [
+            {
+              id: '1',
+              name: 'Robotics Workshop',
+              date: '2023-03-28',
+              attended: true
+            },
+            {
+              id: '2',
+              name: 'Programming Basics',
+              date: '2023-03-27',
+              attended: true
+            }
+          ]
+        },
+        records: records
       });
     }
     

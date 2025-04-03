@@ -12,18 +12,19 @@ import { supabase } from "@/lib/supabase";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AttendanceRecord } from "@/types";
 
 export default function Attendance() {
-  const [sessionFilter, setSessionFilter] = useState("all");
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
-  const [qrCodeData, setQrCodeData] = useState('');
-  const [activeSession, setActiveSession] = useState(null);
-  const [sessionStats, setSessionStats] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [sessionName, setSessionName] = useState("");
-  const [sessionDate, setSessionDate] = useState("");
-  const [sessionTime, setSessionTime] = useState("");
-  const [sessionDuration, setSessionDuration] = useState("60");
+  const [sessionFilter, setSessionFilter] = useState<string>("all");
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
+  const [qrCodeData, setQrCodeData] = useState<string>('');
+  const [activeSession, setActiveSession] = useState<AttendanceRecord | null>(null);
+  const [sessionStats, setSessionStats] = useState<AttendanceRecord[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [sessionName, setSessionName] = useState<string>("");
+  const [sessionDate, setSessionDate] = useState<string>("");
+  const [sessionTime, setSessionTime] = useState<string>("");
+  const [sessionDuration, setSessionDuration] = useState<string>("60");
 
   // Fetch all sessions and students
   useEffect(() => {
@@ -137,7 +138,7 @@ export default function Attendance() {
   }, [sessionStats]);
 
   // Generate QR code for active session
-  const generateQRCode = async (session) => {
+  const generateQRCode = async (session: AttendanceRecord) => {
     try {
       const sessionData = {
         sessionId: session.id,
@@ -155,7 +156,7 @@ export default function Attendance() {
       
       const qrCodeDataUrl = await QRCode.toDataURL(qrCodeContent);
       setQrCodeUrl(qrCodeDataUrl);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error generating QR code:", error);
     }
   };

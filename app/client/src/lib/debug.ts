@@ -72,7 +72,8 @@ export async function testApiEndpoint(endpoint: string) {
       }
     }
   } catch (error) {
-    debugLog('API', `Network error testing ${fullUrl}:`, error);
+    const url = endpoint.startsWith('http') ? endpoint : getApiUrl(endpoint);
+    debugLog('API', `Network error testing ${url}:`, error);
     return { success: false, status: 0, error };
   }
 }

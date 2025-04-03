@@ -45,11 +45,12 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const url = typeof queryKey[0] === "string" 
-      ? queryKey[0].startsWith("http") 
-        ? queryKey[0] 
-        : getApiUrl(queryKey[0])
-      : queryKey[0];
+    const urlParam = queryKey[0];
+    const url = typeof urlParam === "string" 
+      ? urlParam.startsWith("http") 
+        ? urlParam 
+        : getApiUrl(urlParam)
+      : urlParam as string;
       
     const res = await fetch(url, {
       credentials: "include",

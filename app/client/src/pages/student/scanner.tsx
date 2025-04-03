@@ -39,7 +39,7 @@ const StudentScannerPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [success, setSuccess] = useState(false);
   const [redirectUrl, setRedirectUrl] = useState('');
-  const [activeSession, setActiveSession] = useState(null);
+  const [activeSession, setActiveSession] = useState<AttendanceRecord | null>(null);
 
   // Directly fetch active session
   useEffect(() => {

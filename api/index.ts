@@ -12,6 +12,7 @@ const sessions: Record<string, { user: any, expiresAt: number }> = {};
 // Fake data storage for demo
 const activeClassSessions: any[] = [];
 const attendanceRecords: any[] = [];
+const tempReports: Record<string, { type: string, data: any[], expiresAt: number }> = {};
 
 // Demo users to always have available
 interface DemoUser {
@@ -465,18 +466,110 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       
       const sessionId = path.split('/')[2];
+      const { timestamp } = req.body || {};
       
-      // Record attendance
-      attendanceRecords.push({
-        sessionId,
-        userId: user.id,
-        timestamp: new Date().toISOString()
-      });
-      
-      return res.status(200).json({ 
-        success: true, 
-        message: 'Attendance recorded successfully' 
-      });
+      try {
+        console.log('Recording manual attendance for session:', sessionId, 'user:', user.id);
+        
+        // Get session information from Supabase
+        const { data: sessionData, error: sessionError } = await supabase
+          .from('sessions')
+          .select('*')
+          .eq('id', sessionId)
+          .single();
+          
+        if (sessionError) {
+          console.error('Error fetching session:', sessionError);
+          throw new Error('Session not found or error fetching session data');
+        }
+        
+        // Check if user has already recorded attendance for this session
+        const { data: existingRecord, error: checkError } = await supabase
+          .from('attendance')
+          .select('*')
+          .eq('session_id', sessionId)
+          .eq('user_id', user.id)
+          .single();
+          
+        if (checkError && checkError.code !== 'PGRST116') { // Ignore "no rows returned" error
+          console.error('Error checking existing attendance:', checkError);
+        }
+        
+        if (existingRecord) {
+          console.log('User already has attendance record for this session:', existingRecord);
+          
+          // Record attendance in local memory for demo/backup
+          attendanceRecords.push({
+            sessionId,
+            userId: user.id,
+            name: user.name,
+            timestamp: timestamp || new Date().toISOString(),
+            status: 'present',
+            duplicate: true,
+            method: 'manual'
+          });
+          
+          return res.status(200).json({ 
+            success: true, 
+            message: 'Attendance was already recorded for this session'
+          });
+        }
+        
+        // Insert new attendance record in Supabase
+        const attendanceData = {
+          session_id: sessionId,
+          user_id: user.id,
+          username: user.username,
+          name: user.name,
+          check_in_time: timestamp || new Date().toISOString(),
+          status: 'present'
+        };
+        
+        const { data: insertData, error: insertError } = await supabase
+          .from('attendance')
+          .insert(attendanceData)
+          .select();
+          
+        if (insertError) {
+          console.error('Error inserting attendance record:', insertError);
+          throw new Error('Failed to record attendance in database');
+        }
+        
+        console.log('Attendance record inserted:', insertData);
+        
+        // Record attendance in local memory for demo/backup
+        attendanceRecords.push({
+          sessionId,
+          userId: user.id,
+          name: user.name,
+          timestamp: timestamp || new Date().toISOString(),
+          status: 'present',
+          method: 'manual'
+        });
+        
+        return res.status(200).json({ 
+          success: true, 
+          message: 'Attendance recorded successfully'
+        });
+      } catch (error) {
+        console.error('Error recording attendance:', error);
+        
+        // As a fallback, still record in memory
+        attendanceRecords.push({
+          sessionId,
+          userId: user.id,
+          name: user.name,
+          timestamp: timestamp || new Date().toISOString(),
+          status: 'present',
+          error: true,
+          method: 'manual'
+        });
+        
+        return res.status(500).json({ 
+          error: 'Failed to record attendance',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     }
     
     // Handle students endpoint
@@ -505,52 +598,111 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
       
-      if (user.role !== 'student') {
-        return res.status(403).json({ error: 'Only students can view their attendance' });
-      }
-      
-      // Return mock attendance data in the format expected by the frontend
-      const currentDate = new Date();
-      const oneDay = 24 * 60 * 60 * 1000; // milliseconds in a day
-      
-      // Create an array of mocked attendance records
-      const records = [
-        {
-          id: '1',
-          sessionId: '1',
-          userId: user.id,
-          username: user.username,
-          name: user.name,
-          sessionName: 'Robotics Workshop',
-          date: new Date(currentDate.getTime() - oneDay).toISOString().split('T')[0],
-          time: '10:00 AM',
-          status: 'present',
-          checkInTime: new Date(currentDate.getTime() - oneDay + 30 * 60000).toISOString(),
-          session: {
-            id: '1',
-            name: 'Robotics Workshop'
-          }
-        },
-        {
-          id: '2',
-          sessionId: '2',
-          userId: user.id,
-          username: user.username,
-          name: user.name,
-          sessionName: 'Programming Basics',
-          date: new Date(currentDate.getTime() - 2 * oneDay).toISOString().split('T')[0],
-          time: '2:00 PM',
-          status: 'present',
-          checkInTime: new Date(currentDate.getTime() - 2 * oneDay + 15 * 60000).toISOString(),
-          session: {
-            id: '2',
-            name: 'Programming Basics'
-          }
+      try {
+        console.log('Fetching attendance records for user:', user.id);
+        
+        // Fetch user's attendance records from Supabase
+        const { data: attendanceData, error: attendanceError } = await supabase
+          .from('attendance')
+          .select(`
+            *,
+            session:session_id (
+              id,
+              name,
+              date,
+              time,
+              duration
+            )
+          `)
+          .eq('user_id', user.id)
+          .order('check_in_time', { ascending: false });
+          
+        if (attendanceError) {
+          console.error('Error fetching attendance records:', attendanceError);
+          throw new Error('Failed to fetch attendance records');
         }
-      ];
-      
-      // Return both the summary data and the detailed records 
-      return res.status(200).json(records);
+        
+        if (!attendanceData || attendanceData.length === 0) {
+          console.log('No attendance records found for user:', user.id);
+          
+          // Return mock attendance data if no real data exists yet
+          const currentDate = new Date();
+          const oneDay = 24 * 60 * 60 * 1000; // milliseconds in a day
+          
+          // Create an array of mocked attendance records
+          const mockRecords = [
+            {
+              id: '1',
+              sessionId: '1',
+              userId: user.id,
+              username: user.username,
+              name: user.name,
+              sessionName: 'Robotics Workshop',
+              date: new Date(currentDate.getTime() - oneDay).toISOString().split('T')[0],
+              time: '10:00 AM',
+              status: 'present',
+              checkInTime: new Date(currentDate.getTime() - oneDay + 30 * 60000).toISOString(),
+              session: {
+                id: '1',
+                name: 'Robotics Workshop'
+              }
+            },
+            {
+              id: '2',
+              sessionId: '2',
+              userId: user.id,
+              username: user.username,
+              name: user.name,
+              sessionName: 'Programming Basics',
+              date: new Date(currentDate.getTime() - 2 * oneDay).toISOString().split('T')[0],
+              time: '2:00 PM',
+              status: 'present',
+              checkInTime: new Date(currentDate.getTime() - 2 * oneDay + 15 * 60000).toISOString(),
+              session: {
+                id: '2',
+                name: 'Programming Basics'
+              }
+            }
+          ];
+          
+          return res.status(200).json(mockRecords);
+        }
+        
+        console.log(`Found ${attendanceData.length} attendance records for user:`, user.id);
+        
+        // Format the records to match expected frontend format
+        const formattedRecords = attendanceData.map(record => {
+          // Get session details
+          const sessionInfo = record.session || {};
+          
+          return {
+            id: record.id.toString(),
+            sessionId: record.session_id.toString(),
+            userId: record.user_id,
+            username: record.username,
+            name: record.name,
+            sessionName: sessionInfo.name || 'Unknown Session',
+            date: sessionInfo.date || 'Unknown Date',
+            time: sessionInfo.time || 'Unknown Time',
+            status: record.status || 'present',
+            checkInTime: record.check_in_time,
+            session: {
+              id: record.session_id.toString(),
+              name: sessionInfo.name || 'Unknown Session'
+            }
+          };
+        });
+        
+        return res.status(200).json(formattedRecords);
+      } catch (error) {
+        console.error('Error in attendance/me endpoint:', error);
+        
+        // Return an empty array as fallback
+        return res.status(500).json({ 
+          error: 'Failed to fetch attendance records',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     }
     
     // Handle attendance reports endpoint
@@ -570,49 +722,173 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const dateRange = query.dateRange as string || '7days';
       const format = query.format as string || 'json';
       
-      // Mock student data for reports
-      const students = [
-        { id: 1, username: 'S1001', name: 'John Smith', sessionsAttended: 3, sessionsMissed: 3, attendanceRate: '50%' },
-        { id: 2, username: 'mohan', name: 'N. Mohan Sai Reddy', sessionsAttended: 0, sessionsMissed: 6, attendanceRate: '0%' },
-        { id: 3, username: 'vedhanth', name: 'A. Vedhanth', sessionsAttended: 0, sessionsMissed: 6, attendanceRate: '0%' },
-      ];
-      
-      // Mock session data for reports
-      const sessions = [
-        { 
-          id: 1, 
-          name: 'Robotics Workshop', 
-          date: '2023-04-01', 
-          totalStudents: 20, 
-          presentStudents: 15, 
-          absentStudents: 5, 
-          attendanceRate: '75%' 
-        },
-        { 
-          id: 2, 
-          name: 'Programming Basics', 
-          date: '2023-04-02', 
-          totalStudents: 22, 
-          presentStudents: 18, 
-          absentStudents: 4, 
-          attendanceRate: '82%' 
+      try {
+        // Fetch actual data from Supabase for reports
+        let reportData: any = [];
+        
+        if (reportType === 'student') {
+          // Fetch student attendance data
+          const { data, error } = await supabase
+            .from('attendance')
+            .select(`
+              user_id,
+              username,
+              name,
+              status
+            `)
+            .order('name', { ascending: true });
+            
+          if (error) {
+            console.error('Error fetching student attendance:', error);
+            throw new Error('Failed to fetch student attendance data');
+          }
+          
+          // Process into a summary by student
+          const studentSummary: Record<string, any> = {};
+          
+          // Group and count by student
+          data?.forEach(record => {
+            const userId = record.user_id.toString();
+            
+            if (!studentSummary[userId]) {
+              studentSummary[userId] = {
+                id: record.user_id,
+                username: record.username,
+                name: record.name,
+                sessionsAttended: 0,
+                sessionsMissed: 0,
+                attendanceRate: '0%'
+              };
+            }
+            
+            if (record.status === 'present') {
+              studentSummary[userId].sessionsAttended++;
+            } else {
+              studentSummary[userId].sessionsMissed++;
+            }
+          });
+          
+          // Calculate attendance rates
+          Object.values(studentSummary).forEach((student: any) => {
+            const total = student.sessionsAttended + student.sessionsMissed;
+            if (total > 0) {
+              const rate = (student.sessionsAttended / total) * 100;
+              student.attendanceRate = `${Math.round(rate)}%`;
+            }
+          });
+          
+          reportData = Object.values(studentSummary);
+          
+          // If no data, use mock data for demo
+          if (reportData.length === 0) {
+            reportData = [
+              { id: 1, username: 'S1001', name: 'John Smith', sessionsAttended: 3, sessionsMissed: 3, attendanceRate: '50%' },
+              { id: 2, username: 'mohan', name: 'N. Mohan Sai Reddy', sessionsAttended: 2, sessionsMissed: 1, attendanceRate: '67%' },
+              { id: 3, username: 'vedhanth', name: 'A. Vedhanth', sessionsAttended: 1, sessionsMissed: 4, attendanceRate: '20%' },
+            ];
+          }
+        } else {
+          // Fetch session attendance data
+          const { data: sessionsData, error: sessionsError } = await supabase
+            .from('sessions')
+            .select('*')
+            .order('date', { ascending: false });
+            
+          if (sessionsError) {
+            console.error('Error fetching sessions:', sessionsError);
+            throw new Error('Failed to fetch session data');
+          }
+          
+          // For each session, get attendance count
+          for (const session of sessionsData || []) {
+            const { data: attendanceData, error: attendanceError } = await supabase
+              .from('attendance')
+              .select('count', { count: 'exact' })
+              .eq('session_id', session.id)
+              .eq('status', 'present');
+              
+            if (attendanceError) {
+              console.error('Error fetching attendance count:', attendanceError);
+              continue;
+            }
+            
+            const presentCount = attendanceData?.length || 0;
+            const totalStudents = 20; // This would be fetched from actual enrollment in a real app
+            const absentStudents = totalStudents - presentCount;
+            const attendanceRate = Math.round((presentCount / totalStudents) * 100);
+            
+            reportData.push({
+              id: session.id,
+              name: session.name,
+              date: session.date,
+              time: session.time,
+              duration: session.duration,
+              totalStudents,
+              presentStudents: presentCount,
+              absentStudents,
+              attendanceRate: `${attendanceRate}%`
+            });
+          }
+          
+          // If no data, use mock data for demo
+          if (reportData.length === 0) {
+            reportData = [
+              { 
+                id: 1, 
+                name: 'Robotics Workshop', 
+                date: '2023-04-01', 
+                totalStudents: 20, 
+                presentStudents: 15, 
+                absentStudents: 5, 
+                attendanceRate: '75%' 
+              },
+              { 
+                id: 2, 
+                name: 'Programming Basics', 
+                date: '2023-04-02', 
+                totalStudents: 22, 
+                presentStudents: 18, 
+                absentStudents: 4, 
+                attendanceRate: '82%' 
+              }
+            ];
+          }
         }
-      ];
-      
-      if (format === 'xlsx') {
-        // For real implementation, we would generate an Excel file here
-        // For the demo, we'll just return a success message
-        return res.status(200).json({ 
-          success: true, 
-          message: 'Generating attendance-summary report for the last week in xlsx format',
-          downloadUrl: '/api/attendance/reports/download?type=' + reportType + '&dateRange=' + dateRange
+        
+        if (format === 'xlsx') {
+          // For Excel format, we'll return a download URL
+          // In a production app, you would generate the Excel file
+          // For now, we'll return a URL to the download endpoint
+          
+          // Store the report data temporarily in memory
+          const reportId = Math.random().toString(36).substring(2);
+          const expiresAt = Date.now() + (10 * 60 * 1000); // 10 minutes
+          
+          tempReports[reportId] = {
+            type: reportType,
+            data: reportData,
+            expiresAt
+          };
+          
+          const reportFilename = `attendance-${reportType}-${new Date().toISOString().split('T')[0]}.xlsx`;
+          
+          return res.status(200).json({ 
+            success: true, 
+            message: `Generating ${reportType} attendance report for the ${dateRange} period`,
+            reportId,
+            filename: reportFilename,
+            downloadUrl: `/api/attendance/reports/download?id=${reportId}&filename=${reportFilename}`
+          });
+        }
+        
+        // For JSON format, return the data directly
+        return res.status(200).json(reportData);
+      } catch (error) {
+        console.error('Error generating report:', error);
+        return res.status(500).json({ 
+          error: 'Failed to generate report',
+          message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
-      
-      if (reportType === 'student') {
-        return res.status(200).json(students);
-      } else {
-        return res.status(200).json(sessions);
       }
     }
     
@@ -627,12 +903,66 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(403).json({ error: 'Only admins can download attendance reports' });
       }
       
-      // In a real implementation, we would generate and return the file
-      // For the demo, we'll just return a success message
-      return res.status(200).json({ 
-        success: true, 
-        message: 'Report downloaded successfully'
-      });
+      try {
+        // Get the report ID and filename from query parameters
+        const reportId = req.query.id as string;
+        const filename = req.query.filename as string || 'attendance-report.xlsx';
+        
+        if (!reportId || !tempReports[reportId]) {
+          return res.status(404).json({ 
+            error: 'Report not found',
+            message: 'The requested report could not be found or has expired.'
+          });
+        }
+        
+        const report = tempReports[reportId];
+        
+        // Check if report has expired
+        if (report.expiresAt < Date.now()) {
+          delete tempReports[reportId];
+          return res.status(410).json({ 
+            error: 'Report expired',
+            message: 'The requested report has expired. Please generate a new report.'
+          });
+        }
+        
+        // Generate CSV content as a simple alternative to Excel
+        // In a production app, you would use a library like exceljs to generate real Excel files
+        let csvContent = '';
+        
+        // Add headers based on report type
+        if (report.type === 'student') {
+          csvContent = 'ID,Username,Name,Sessions Attended,Sessions Missed,Attendance Rate\n';
+          
+          // Add data rows
+          report.data.forEach(student => {
+            csvContent += `${student.id},${student.username},"${student.name}",${student.sessionsAttended},${student.sessionsMissed},${student.attendanceRate}\n`;
+          });
+        } else {
+          csvContent = 'ID,Session Name,Date,Total Students,Present,Absent,Attendance Rate\n';
+          
+          // Add data rows
+          report.data.forEach(session => {
+            csvContent += `${session.id},"${session.name}",${session.date},${session.totalStudents},${session.presentStudents},${session.absentStudents},${session.attendanceRate}\n`;
+          });
+        }
+        
+        // Set headers for CSV download
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename.replace('.xlsx', '.csv')}"`);
+        
+        // Remove the report from temporary storage after serving
+        delete tempReports[reportId];
+        
+        // Return the CSV content
+        return res.status(200).send(csvContent);
+      } catch (error) {
+        console.error('Error generating download:', error);
+        return res.status(500).json({ 
+          error: 'Failed to generate download',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     }
     
     // Handle attendance endpoint (for admin)
@@ -684,30 +1014,123 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
       
-      const { sessionId } = req.body || {};
+      const { sessionId, timestamp } = req.body || {};
       
       if (!sessionId) {
         return res.status(400).json({ error: 'Session ID is required' });
       }
       
-      // Record attendance
-      attendanceRecords.push({
-        sessionId,
-        userId: user.id,
-        name: user.name,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Return explicit URL with protocol and domain to ensure proper redirection
-      const baseUrl = req.headers.host?.includes('localhost') 
-        ? 'http://localhost:3000' 
-        : 'https://qr-attendance-gules.vercel.app';
+      try {
+        console.log('Recording attendance for session:', sessionId, 'user:', user.id);
         
-      return res.status(200).json({ 
-        success: true, 
-        message: 'Attendance recorded successfully',
-        redirectUrl: `${baseUrl}/student`
-      });
+        // Get session information from Supabase
+        const { data: sessionData, error: sessionError } = await supabase
+          .from('sessions')
+          .select('*')
+          .eq('id', sessionId)
+          .single();
+          
+        if (sessionError) {
+          console.error('Error fetching session:', sessionError);
+          throw new Error('Session not found or error fetching session data');
+        }
+        
+        // Check if user has already recorded attendance for this session
+        const { data: existingRecord, error: checkError } = await supabase
+          .from('attendance')
+          .select('*')
+          .eq('session_id', sessionId)
+          .eq('user_id', user.id)
+          .single();
+          
+        if (checkError && checkError.code !== 'PGRST116') { // Ignore "no rows returned" error
+          console.error('Error checking existing attendance:', checkError);
+        }
+        
+        if (existingRecord) {
+          console.log('User already has attendance record for this session:', existingRecord);
+          
+          // Record attendance in local memory for demo/backup
+          attendanceRecords.push({
+            sessionId,
+            userId: user.id,
+            name: user.name,
+            timestamp: timestamp || new Date().toISOString(),
+            status: 'present',
+            duplicate: true
+          });
+          
+          // Return explicit URL with protocol and domain to ensure proper redirection
+          const baseUrl = req.headers.host?.includes('localhost') 
+            ? 'http://localhost:3000' 
+            : 'https://qr-attendance-gules.vercel.app';
+            
+          return res.status(200).json({ 
+            success: true, 
+            message: 'Attendance was already recorded for this session',
+            redirectUrl: `${baseUrl}/student`
+          });
+        }
+        
+        // Insert new attendance record in Supabase
+        const attendanceData = {
+          session_id: sessionId,
+          user_id: user.id,
+          username: user.username,
+          name: user.name,
+          check_in_time: timestamp || new Date().toISOString(),
+          status: 'present'
+        };
+        
+        const { data: insertData, error: insertError } = await supabase
+          .from('attendance')
+          .insert(attendanceData)
+          .select();
+          
+        if (insertError) {
+          console.error('Error inserting attendance record:', insertError);
+          throw new Error('Failed to record attendance in database');
+        }
+        
+        console.log('Attendance record inserted:', insertData);
+        
+        // Record attendance in local memory for demo/backup
+        attendanceRecords.push({
+          sessionId,
+          userId: user.id,
+          name: user.name,
+          timestamp: timestamp || new Date().toISOString(),
+          status: 'present'
+        });
+        
+        // Return explicit URL with protocol and domain to ensure proper redirection
+        const baseUrl = req.headers.host?.includes('localhost') 
+          ? 'http://localhost:3000' 
+          : 'https://qr-attendance-gules.vercel.app';
+          
+        return res.status(200).json({ 
+          success: true, 
+          message: 'Attendance recorded successfully',
+          redirectUrl: `${baseUrl}/student`
+        });
+      } catch (error) {
+        console.error('Error recording attendance:', error);
+        
+        // As a fallback, still record in memory
+        attendanceRecords.push({
+          sessionId,
+          userId: user.id,
+          name: user.name,
+          timestamp: timestamp || new Date().toISOString(),
+          status: 'present',
+          error: true
+        });
+        
+        return res.status(500).json({ 
+          error: 'Failed to record attendance',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     }
     
     // Handle redirection to dashboard after scanning

@@ -242,14 +242,44 @@ export default function QRGenerator() {
   };
 
   const downloadQR = () => {
-    if (!qrUrl) return;
+    if (!qrUrl) {
+      toast({
+        variant: "destructive",
+        title: "Download Failed",
+        description: "QR code is not available for download. Please generate it first.",
+      });
+      return;
+    }
 
-    const link = document.createElement("a");
-    link.href = qrUrl;
-    link.download = `qrcode-${form.getValues().name.replace(/\s+/g, "-")}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      console.log("Downloading QR code...");
+      
+      // Create a link element
+      const link = document.createElement("a");
+      link.href = qrUrl;
+      link.download = `qrcode-${form.getValues().name.replace(/\s+/g, "-")}.png`;
+      
+      // Append to the document
+      document.body.appendChild(link);
+      
+      // Trigger download
+      link.click();
+      
+      // Clean up
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Download Started",
+        description: "Your QR code is being downloaded.",
+      });
+    } catch (error) {
+      console.error("Error downloading QR code:", error);
+      toast({
+        variant: "destructive",
+        title: "Download Failed",
+        description: "Failed to download QR code. Please try again.",
+      });
+    }
   };
 
   return (

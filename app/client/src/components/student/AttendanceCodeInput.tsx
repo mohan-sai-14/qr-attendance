@@ -14,6 +14,12 @@ import {
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabaseUrl = 'https://qwavakkbfpdgkvtctogx.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXZha2tiZnBkZ2t2dGN0b2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3MTE4MjYsImV4cCI6MjA1ODI4NzgyNn0.Kdwo9ICmcsHPhK_On6G73ccSPkcEqzAg2BtvblhD8co';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const formSchema = z.object({
   code: z.string().min(1, "Attendance code is required")
@@ -51,6 +57,49 @@ const AttendanceCodeInput: React.FC<AttendanceCodeInputProps> = ({
       
       console.log(`Submitting attendance with code: ${codeToUse}`);
       
+      // First, try direct Supabase insert
+      try {
+        console.log("Attempting direct Supabase insert with code:", codeToUse);
+        
+        // Format the current date for the database record
+        const now = new Date();
+        const formattedDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
+        const localTimestamp = now.toISOString();
+        
+        // Insert attendance record directly to Supabase
+        const { data: insertData, error: insertError } = await supabase
+          .from('attendance')
+          .insert([{
+            session_id: codeToUse,
+            user_id: user?.id || 3,
+            username: user?.username || 'student',
+            name: user?.name || 'Student',
+            check_in_time: localTimestamp,
+            date: formattedDate,
+            status: 'present',
+            session_name: `Session ${codeToUse}`
+          }])
+          .select();
+          
+        if (insertError) {
+          console.error('Direct Supabase error:', insertError);
+          // Continue to API fallback
+        } else {
+          console.log('Successfully saved attendance directly to Supabase:', insertData);
+          toast({
+            title: "Success",
+            description: "Attendance recorded successfully!"
+          });
+          onSuccess('/student');
+          return;
+        }
+      } catch (supabaseError) {
+        console.error("Error with direct Supabase insert:", supabaseError);
+        // Continue to API fallback
+      }
+      
+      // Fallback to API if direct insert fails
+      console.log("Falling back to API for attendance recording");
       const response = await fetch('/api/scan', {
         method: 'POST',
         headers: {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, CSSProperties } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { Html5QrcodePlugin } from '../../components/student/html5-qrcode-plugin';
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
-import { getActiveSession, recordAttendance } from "@/lib/api";
+import { getActiveSession } from "@/lib/api";
 import { createClient } from '@supabase/supabase-js';
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
@@ -31,6 +31,16 @@ const SimpleLink = ({ to, children }: { to: string; children: React.ReactNode })
     </a>
   );
 };
+
+interface AttendanceRecord {
+  id: string;
+  name: string;
+  date: string;
+  time?: string;
+  duration?: string;
+  is_active?: boolean;
+  [key: string]: any;
+}
 
 const StudentScannerPage: React.FC = () => {
   const { user, refreshUser } = useAuth();
@@ -124,6 +134,54 @@ const StudentScannerPage: React.FC = () => {
         }
       }
       
+      // First, try to save directly to Supabase
+      try {
+        console.log("Attempting to save attendance directly to Supabase...");
+        
+        // Format the current date for the database record
+        const now = new Date();
+        const formattedDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
+        const localTimestamp = now.toISOString();
+        
+        // Insert attendance record directly to Supabase
+        const { data: insertData, error: insertError } = await supabase
+          .from('attendance')
+          .insert([{
+            session_id: sessionId,
+            user_id: user?.id || 3,
+            username: user?.username || 'student',
+            name: user?.name || 'Student',
+            check_in_time: localTimestamp,
+            date: formattedDate,
+            status: 'present',
+            session_name: activeSession?.name || `Session ${sessionId}`
+          }])
+          .select();
+          
+        if (insertError) {
+          console.error('Direct Supabase error:', insertError);
+          // Continue to API fallback
+        } else {
+          console.log('Successfully saved attendance directly to Supabase:', insertData);
+          toast({
+            title: "Attendance Recorded",
+            description: "Your attendance has been successfully recorded!"
+          });
+          
+          // Redirect to student dashboard with delay to allow toast to be seen
+          setTimeout(() => {
+            window.location.href = '/student';
+          }, 1500);
+          
+          return;
+        }
+      } catch (supabaseError) {
+        console.error("Error with direct Supabase insert:", supabaseError);
+        // Continue to API fallback
+      }
+      
+      // API fallback if direct Supabase insertion fails
+      console.log("Trying API fallback for attendance recording...");
       const response = await fetch('/api/scan', {
         method: 'POST',
         headers: {
@@ -141,7 +199,7 @@ const StudentScannerPage: React.FC = () => {
       const result = await response.json();
       
       if (!response.ok) {
-        console.error("Error recording attendance:", result);
+        console.error("Error recording attendance through API:", result);
         toast({
           title: "Failed to Record Attendance",
           description: result.error || result.message || "Unable to record attendance. Please try again.",
@@ -155,10 +213,10 @@ const StudentScannerPage: React.FC = () => {
         description: "Your attendance has been successfully recorded!"
       });
       
-      // Redirect after successful scan if a redirect URL is provided
-      if (result.redirectUrl) {
-        window.location.href = result.redirectUrl;
-      }
+      // Always use direct URL navigation rather than relying on redirect URL from API
+      setTimeout(() => {
+        window.location.href = '/student';
+      }, 1500);
       
     } catch (error) {
       console.error("Error processing QR code:", error);
@@ -190,8 +248,10 @@ const StudentScannerPage: React.FC = () => {
       description: "Your attendance has been successfully recorded!"
     });
     
-    // Redirect after successful attendance
-    window.location.href = redirectUrl;
+    // Use direct navigation instead of relying on redirectUrl
+    setTimeout(() => {
+      window.location.href = '/student';
+    }, 1500);
   };
 
   const handleCodeError = (errorMessage: string) => {
@@ -233,9 +293,11 @@ const StudentScannerPage: React.FC = () => {
           <p className="text-gray-600 mb-4">
             There is currently no active attendance session. Please try again when a session is active.
           </p>
-          <SimpleLink to="/student">
-            <Button>Return to Dashboard</Button>
-          </SimpleLink>
+          <Button 
+            onClick={() => window.location.href = '/student'}
+          >
+            Return to Dashboard
+          </Button>
         </div>
       </div>
     );

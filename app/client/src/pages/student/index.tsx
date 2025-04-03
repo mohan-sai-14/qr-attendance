@@ -40,15 +40,57 @@ const StudentDashboard = () => {
     queryFn: async () => {
       console.log('Fetching active session...');
       try {
-        const response = await axios.get('/api/sessions/active');
+        // Add a delay to ensure auth is properly initialized
+        if (!user) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        const response = await axios.get('/api/sessions/active', {
+          withCredentials: true, // Ensure cookies are sent with the request
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
         console.log('Active session response:', response.data);
         return response.data;
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching active session:', error);
+        
+        // If we get a 401 error, try refreshing the auth status
+        if (error.response && error.response.status === 401) {
+          console.log('Authentication error, trying to refresh session...');
+          try {
+            // Force a refresh of the user session
+            const meResponse = await axios.get('/api/me', { 
+              withCredentials: true,
+              headers: {
+                'Cache-Control': 'no-cache'
+              }
+            });
+            console.log('Session refreshed:', meResponse.data);
+            
+            // Retry fetching the active session
+            const retryResponse = await axios.get('/api/sessions/active', { 
+              withCredentials: true,
+              headers: {
+                'Cache-Control': 'no-cache'
+              }
+            });
+            console.log('Retry active session response:', retryResponse.data);
+            return retryResponse.data;
+          } catch (retryError) {
+            console.error('Failed to refresh session:', retryError);
+            return null;
+          }
+        }
+        
         return null;
       }
     },
     refetchInterval: 30000, // Refetch every 30 seconds
+    retry: 2,
+    enabled: !!user // Only run this query when user is available
   });
 
   // Fetch attendance history

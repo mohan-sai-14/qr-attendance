@@ -1,187 +1,155 @@
-import { useState, useEffect, createContext, useContext, ReactNode } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "./queryClient";
-import { getApiUrl } from "./config";
-import { supabase } from "./supabase";
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import axios from 'axios';
 
-export interface User {
+interface User {
   id: number;
   username: string;
   name: string;
-  role: string;
-  email?: string;
+  role: 'admin' | 'student';
 }
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  error: string | null;
   login: (username: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
-  isOfflineMode: boolean;
+  refreshUser: () => Promise<User | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // On component mount, check if session exists
+  // Check if user is logged in on initial load
   useEffect(() => {
-    const checkSession = async () => {
+    const checkAuthStatus = async () => {
+      setIsLoading(true);
       try {
-        setIsLoading(true);
-        console.log("Checking session at:", getApiUrl("/api/me"));
-        
-        // Check for session with API
-        const response = await fetch(getApiUrl("/api/me"), {
-          credentials: 'include',
+        const response = await axios.get('/api/me', { 
+          withCredentials: true,
           headers: {
-            'Accept': 'application/json',
-            'Cache-Control': 'no-cache'
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
           }
         });
         
-        console.log("Session check response status:", response.status);
-        
-        if (response.ok) {
-          const userData = await response.json();
-          console.log("User data from session:", userData);
-          setUser(userData);
-          localStorage.setItem('userData', JSON.stringify(userData));
-          setIsOfflineMode(false);
+        if (response.data && response.data.id) {
+          console.log('User authenticated:', response.data);
+          setUser(response.data);
+          
+          // Store in localStorage as a backup
+          localStorage.setItem('user', JSON.stringify(response.data));
         } else {
-          // No valid session, clear any stored user data
-          localStorage.removeItem('userData');
+          console.log('No authenticated user found');
           setUser(null);
-          console.log("No valid session found, user not authenticated");
+          localStorage.removeItem('user');
         }
       } catch (error) {
-        console.error("Error checking session:", error);
-        setUser(null);
-        localStorage.removeItem('userData');
+        console.error('Error checking auth status:', error);
+        
+        // Try to get user from localStorage as a fallback
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          try {
+            setUser(JSON.parse(storedUser));
+          } catch (e) {
+            localStorage.removeItem('user');
+            setUser(null);
+          }
+        } else {
+          setUser(null);
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
-    checkSession();
+    checkAuthStatus();
   }, []);
 
-  const loginMutation = useMutation({
-    mutationFn: async ({ username, password }: { username: string; password: string }) => {
-      try {
-        console.log("Attempting login for user:", username);
-        
-        // Try to login through our API
-        const response = await fetch(getApiUrl("/api/login"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-          },
-          credentials: "include",
-          body: JSON.stringify({ 
-            username, 
-            password
-          }),
-        });
-        
-        console.log("Login API response status:", response.status);
-        
-        if (!response.ok) {
-          // Try to get error message from the response
-          let errorMessage;
-          try {
-            const errorData = await response.json();
-            errorMessage = errorData.error || `Login failed: ${response.statusText || "Unknown error"}`;
-          } catch (parseError) {
-            errorMessage = `Login failed: ${response.statusText || "Unknown error"}`;
-          }
-          
-          console.error("Login failed:", errorMessage);
-          throw new Error(errorMessage);
-        }
-        
-        // Parse user data
-        const userData = await response.json();
-        console.log("Login successful, user data:", userData);
-        
-        // Store userData in localStorage for offline reference, not for auth
-        localStorage.setItem('userData', JSON.stringify(userData));
-        
-        return userData;
-      } catch (error: any) {
-        console.error("Login error:", error);
-        throw error;
+  const login = async (username: string, password: string): Promise<User> => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      console.log('Attempting login for:', username);
+      const response = await axios.post('/api/login', { username, password }, { withCredentials: true });
+      
+      console.log('Login response:', response);
+      
+      if (response.data && response.data.id) {
+        setUser(response.data);
+        localStorage.setItem('user', JSON.stringify(response.data));
+        return response.data;
+      } else {
+        throw new Error('Invalid response from server');
       }
-    },
-    onSuccess: (data) => {
-      setUser(data);
-      setIsOfflineMode(false);
-      queryClient.invalidateQueries({ queryKey: [getApiUrl('/api/me')] });
-    },
-  });
-
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      try {
-        console.log("Logging out...");
-        // Log out through our API
-        const response = await fetch(getApiUrl("/api/logout"), {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          }
-        });
-        
-        if (!response.ok) {
-          console.warn("Logout response not OK:", response.status);
-        }
-        
-        // Always clear local data regardless of server response
-        localStorage.removeItem('userData');
-        setUser(null);
-        
-      } catch (error) {
-        console.error("Logout error:", error);
-        // Continue with local logout even if API fails
-        localStorage.removeItem('userData');
-        setUser(null);
-      }
-    },
-    onSuccess: () => {
-      setUser(null);
-      setIsOfflineMode(false);
-      queryClient.clear();
-      queryClient.invalidateQueries();
-    },
-  });
-
-  const login = async (username: string, password: string) => {
-    return loginMutation.mutateAsync({ username, password });
+    } catch (error: any) {
+      console.error('Login error:', error);
+      const errorMessage = error.response?.data?.error || 'Failed to login. Please try again.';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const logout = async () => {
-    await logoutMutation.mutateAsync();
+  const logout = async (): Promise<void> => {
+    setIsLoading(true);
+    try {
+      await axios.post('/api/logout', {}, { withCredentials: true });
+      setUser(null);
+      localStorage.removeItem('user');
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  const refreshUser = async (): Promise<User | null> => {
+    setIsLoading(true);
+    try {
+      const response = await axios.get('/api/me', { 
+        withCredentials: true,
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+      
+      if (response.data && response.data.id) {
+        setUser(response.data);
+        localStorage.setItem('user', JSON.stringify(response.data));
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error refreshing user:', error);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, isOfflineMode }}>
+    <AuthContext.Provider value={{ user, isLoading, error, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
-}
+};
 
-export function useAuth() {
+export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-}
+};
 
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn = ({ on401 }: { on401: UnauthorizedBehavior }) => 

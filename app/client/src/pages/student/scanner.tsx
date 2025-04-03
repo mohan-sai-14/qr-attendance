@@ -100,117 +100,40 @@ const StudentScannerPage: React.FC = () => {
         
         console.log("QR Session ID found:", sessionData.sessionId);
         console.log("User information:", user);
-        
-        // Get the active session directly from Supabase
-        const { data: sessions, error: sessionsError } = await supabase
-          .from('sessions')
-          .select('*')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(1);
-          
-        if (sessionsError) {
-          console.error("Error fetching active session:", sessionsError);
-          setErrorMessage('Error accessing session data. Please try again.');
+
+        // Send scan data to our new API endpoint
+        const response = await fetch('/api/scan', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            sessionId: sessionData.sessionId,
+            userId: user.id,
+            username: user.username,
+            timestamp: new Date().toISOString()
+          }),
+          credentials: 'include' // Important for cookie-based auth
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error("Error recording attendance:", errorData);
+          setErrorMessage(errorData.error || 'Failed to record attendance. Please try again.');
           return;
         }
+
+        const result = await response.json();
+        console.log("Attendance recorded successfully:", result);
         
-        if (!sessions || sessions.length === 0) {
-          setErrorMessage('No active session found. Please try again later.');
-          return;
-        }
-        
-        const activeSessionData = sessions[0];
-        console.log("Active session in database:", activeSessionData);
-        
-        // Format the current date/time
-        const now = new Date();
-        
-        // Format date in DD-MM-YYYY format for the date column
-        const dateString = String(now.getDate()).padStart(2, '0') + '-' + 
-                          String(now.getMonth() + 1).padStart(2, '0') + '-' + 
-                          now.getFullYear();
-        
-        // Format timestamp in database-friendly format (YYYY-MM-DD HH:MM:SS)
-        const localTimestamp = now.getFullYear() + '-' + 
-                             String(now.getMonth() + 1).padStart(2, '0') + '-' + 
-                             String(now.getDate()).padStart(2, '0') + ' ' + 
-                             String(now.getHours()).padStart(2, '0') + ':' + 
-                             String(now.getMinutes()).padStart(2, '0') + ':' + 
-                             String(now.getSeconds()).padStart(2, '0');
-        
-        console.log("Using timestamp:", localTimestamp);
-        console.log("Using date:", dateString);
-        
-        // Check if attendance has already been recorded
-        const { data: existingAttendance, error: checkError } = await supabase
-          .from('attendance')
-          .select('*')
-          .eq('user_id', user.username)
-          .eq('session_id', activeSessionData.id)
-          .single();
-          
-        if (checkError && checkError.code !== 'PGRST116') { // Code PGRST116 means no rows returned
-          console.error("Error checking attendance:", checkError);
-        }
-        
-        if (existingAttendance) {
-          console.log("Attendance already recorded for this session");
-          setSuccess(true);
-          setErrorMessage(''); // Clear any previous error messages
-          setRedirectUrl('/student/dashboard');
-          
-          // Show specific message for already recorded attendance
-          toast({
-            title: "Already Recorded",
-            description: "Your attendance for this session was already recorded.",
-            duration: 5000
-          });
-          
-          return;
-        }
-        
-        // Insert attendance record into Supabase
-        const { data: attendanceData, error: insertError } = await supabase
-          .from('attendance')
-          .insert([{
-            user_id: user.username,
-            session_id: activeSessionData.id,
-            check_in_time: localTimestamp,
-            date: dateString,
-            status: 'present',
-            name: user.name || 'Student',
-            session_name: activeSessionData.name
-          }])
-          .select();
-          
-        if (insertError) {
-          console.error("Error recording attendance:", insertError);
-          
-          // Check if error is due to duplicate record (should be caught by prior check)
-          if (insertError.code === '23505') {
-            console.log("Attendance already recorded (duplicate record)");
-            setSuccess(true);
-            setErrorMessage(''); // Clear any previous error messages
-            setRedirectUrl('/student/dashboard');
-            
-            // Show specific message for already recorded attendance
-            toast({
-              title: "Already Recorded",
-              description: "Your attendance for this session was already recorded.",
-              duration: 5000
-            });
-            
-            return;
-          }
-          
-          setErrorMessage('Failed to record attendance: ' + insertError.message);
-          return;
-        }
-        
-        console.log("Attendance recorded successfully:", attendanceData);
         setSuccess(true);
-        setRedirectUrl('/student/dashboard');
+        setRedirectUrl(result.redirectUrl || '/student');
+        
+        toast({
+          title: "Success!",
+          description: "Your attendance has been recorded.",
+          duration: 5000
+        });
         
       } catch (e) {
         console.error("QR code parse error:", e);
@@ -248,10 +171,10 @@ const StudentScannerPage: React.FC = () => {
     retry: false,
   });
 
-  if (activeSession === null) {
+  if (!activeSession) {
     return (
-      <div className="h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center space-y-4 p-5 max-w-md text-center">
+      <div className="container mx-auto p-4">
+        <div className="text-center py-8">
           <h2 className="text-2xl font-bold text-red-500 mb-4">No Active Session Found</h2>
           <p className="text-gray-600 mb-4">
             There is currently no active attendance session. Please try again when a session is active.
@@ -334,8 +257,8 @@ const StudentScannerPage: React.FC = () => {
                       </div>
                       
                       <div className="space-x-4">
-                        <Button onClick={() => setRedirectUrl('/student/dashboard')}>
-                          Go to Dashboard
+                        <Button onClick={() => window.location.href = redirectUrl || '/student'}>
+                          Return to Dashboard
                         </Button>
                         <Button variant="outline" onClick={() => {
                           setSuccess(false);

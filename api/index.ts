@@ -6,8 +6,35 @@ const supabaseUrl = 'https://qwavakkbfpdgkvtctogx.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXZha2tiZnBkZ2t2dGN0b2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3MTE4MjYsImV4cCI6MjA1ODI4NzgyNn0.Kdwo9ICmcsHPhK_On6G73ccSPkcEqzAg2BtvblhD8co';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Simple session storage (will be reset on function restart)
+// Simple in-memory storage (will be reset on function restart)
 const sessions: Record<string, { user: any, expiresAt: number }> = {};
+
+// Fake data storage for demo
+const activeClassSessions: any[] = [];
+const attendanceRecords: any[] = [];
+
+// Helper function to get user from session
+const getUserFromSession = (req: VercelRequest) => {
+  const cookieHeader = req.headers.cookie || '';
+  const sessionId = cookieHeader.split(';')
+    .map(cookie => cookie.trim())
+    .find(cookie => cookie.startsWith('sessionId='))
+    ?.split('=')[1];
+  
+  if (!sessionId || !sessions[sessionId]) {
+    return null;
+  }
+  
+  const session = sessions[sessionId];
+  
+  // Check if session is expired
+  if (session.expiresAt < Date.now()) {
+    delete sessions[sessionId];
+    return null;
+  }
+  
+  return session.user;
+};
 
 // Serverless function handler
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -160,6 +187,222 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.setHeader('Set-Cookie', 'sessionId=; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=0');
       
       return res.status(200).json({ success: true });
+    }
+
+    // Handle sessions endpoints
+    if (path === '/sessions' && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // For demo, return a list of mock sessions
+      return res.status(200).json([
+        {
+          id: '1',
+          name: 'Robotics Workshop',
+          date: new Date().toISOString().split('T')[0],
+          time: '10:00 AM',
+          duration: 60,
+          status: 'active',
+          attendance: 15,
+          total: 20
+        },
+        {
+          id: '2',
+          name: 'Programming Basics',
+          date: new Date(Date.now() - 86400000).toISOString().split('T')[0], // Yesterday
+          time: '2:00 PM',
+          duration: 90,
+          status: 'completed',
+          attendance: 18,
+          total: 22
+        }
+      ]);
+    }
+    
+    // Handle creating a new session
+    if (path === '/sessions' && req.method === 'POST') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      if (user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can create sessions' });
+      }
+      
+      const { name, date, time, duration } = req.body || {};
+      
+      if (!name || !date || !time || !duration) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      // Create new session
+      const sessionId = Date.now().toString();
+      const expirationTime = new Date();
+      expirationTime.setMinutes(expirationTime.getMinutes() + parseInt(duration));
+      
+      const newSession = {
+        id: sessionId,
+        name,
+        date,
+        time,
+        duration: parseInt(duration),
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        expiresAt: expirationTime.toISOString(),
+        qrCode: `https://qr-attendance-gules.vercel.app/student/scan?session=${sessionId}`
+      };
+      
+      activeClassSessions.push(newSession);
+      
+      return res.status(201).json(newSession);
+    }
+    
+    // Handle specific session
+    if (path.match(/^\/sessions\/[^\/]+$/) && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      const sessionId = path.split('/')[2];
+      const session = activeClassSessions.find(s => s.id === sessionId);
+      
+      if (!session) {
+        // Return dummy session for demo
+        return res.status(200).json({
+          id: sessionId,
+          name: 'Demo Session',
+          date: new Date().toISOString().split('T')[0],
+          time: '11:00 AM',
+          duration: 60,
+          status: 'active',
+          attendance: 12,
+          total: 25
+        });
+      }
+      
+      return res.status(200).json(session);
+    }
+    
+    // Handle session attendance endpoint
+    if (path.match(/^\/sessions\/[^\/]+\/attendance$/) && req.method === 'POST') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      const sessionId = path.split('/')[2];
+      
+      // Record attendance
+      attendanceRecords.push({
+        sessionId,
+        userId: user.id,
+        timestamp: new Date().toISOString()
+      });
+      
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Attendance recorded successfully' 
+      });
+    }
+    
+    // Handle students endpoint
+    if (path === '/students' && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      if (user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can view student list' });
+      }
+      
+      // Return mock student list
+      return res.status(200).json([
+        { id: 2, username: 'S1001', name: 'Student User', role: 'student' },
+        { id: 3, username: 'S1002', name: 'Jane Doe', role: 'student' },
+        { id: 4, username: 'S1003', name: 'John Smith', role: 'student' }
+      ]);
+    }
+    
+    // Handle student attendance endpoint
+    if (path === '/attendance/me' && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      if (user.role !== 'student') {
+        return res.status(403).json({ error: 'Only students can view their attendance' });
+      }
+      
+      // Return mock attendance data
+      return res.status(200).json({
+        total: 15,
+        attended: 12,
+        percentage: 80,
+        sessions: [
+          {
+            id: '1',
+            name: 'Robotics Workshop',
+            date: '2023-03-28',
+            attended: true
+          },
+          {
+            id: '2',
+            name: 'Programming Basics',
+            date: '2023-03-27',
+            attended: true
+          }
+        ]
+      });
+    }
+    
+    // Handle session scanning
+    if (path === '/scan' && req.method === 'POST') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      const { sessionId } = req.body || {};
+      
+      if (!sessionId) {
+        return res.status(400).json({ error: 'Session ID is required' });
+      }
+      
+      // Record attendance
+      attendanceRecords.push({
+        sessionId,
+        userId: user.id,
+        name: user.name,
+        timestamp: new Date().toISOString()
+      });
+      
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Attendance recorded successfully',
+        redirectUrl: '/student'
+      });
+    }
+    
+    // Handle redirection to dashboard after scanning
+    if (path === '/redirect' && req.method === 'GET') {
+      const user = getUserFromSession(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      
+      // Redirect to appropriate dashboard based on user role
+      const redirectUrl = user.role === 'admin' ? '/admin' : '/student';
+      
+      return res.status(200).json({ 
+        success: true, 
+        redirectUrl 
+      });
     }
     
     // Default handler for unmatched routes

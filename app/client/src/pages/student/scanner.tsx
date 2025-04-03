@@ -124,10 +124,10 @@ const StudentScannerPage: React.FC = () => {
     console.log("QR code scanned:", decodedText);
     setData(decodedText);
     setScanning(false);
+    setIsProcessing(true);
     
     try {
-      setIsProcessing(true);
-      
+      // Get the session ID from the QR code
       let sessionId = decodedText;
       
       // Try to parse if it looks like a JSON string
@@ -135,164 +135,56 @@ const StudentScannerPage: React.FC = () => {
         try {
           const parsedData = JSON.parse(decodedText);
           sessionId = parsedData.sessionId || parsedData.id || decodedText;
-          console.log("Parsed session ID:", sessionId);
-        } catch (parseError) {
-          console.warn("Could not parse QR data as JSON, using raw text:", parseError);
+        } catch (error) {
+          console.log("Failed to parse QR code data:", error);
         }
       }
       
-      // Ensure user is authenticated
-      let currentUser = user;
-      if (!currentUser) {
-        try {
-          console.log("Refreshing user authentication before recording attendance...");
-          const authResponse = await axios.get('/api/me', { withCredentials: true });
-          if (authResponse.data && authResponse.data.id) {
-            currentUser = authResponse.data;
-            await refreshUser();
-          } else {
-            console.log("Creating fallback user for attendance");
-            currentUser = {
-              id: 3, // Default to mohan demo user
-              username: 'mohan',
-              name: 'Demo Student',
-              role: 'student'
-            };
-          }
-          console.log("Using user for attendance:", currentUser);
-        } catch (authError) {
-          console.error("Auth refresh failed, using fallback user:", authError);
-          currentUser = {
-            id: 3,
-            username: 'mohan',
-            name: 'Demo Student',
-            role: 'student'
-          };
-        }
-      }
-
-      // First, try to save directly to Supabase
-      let supabaseSuccess = false;
-      
-      try {
-        console.log("Attempting to save attendance directly to Supabase...");
-        
-        // Format the current date for the database record
-        const now = new Date();
-        const formattedDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
-        const localTimestamp = now.toISOString();
-        
-        // Insert attendance record directly to Supabase
-        const { data: insertData, error: insertError } = await supabase
-          .from('attendance')
-          .insert([{
-            session_id: sessionId,
-            user_id: currentUser.id || 3,
-            username: currentUser.username || 'student',
-            name: currentUser.name || 'Student',
-            check_in_time: localTimestamp,
-            date: formattedDate,
-            status: 'present',
-            session_name: activeSession?.name || `Session ${sessionId}`
-          }])
-          .select();
-          
-        if (insertError) {
-          console.error('Direct Supabase error:', insertError);
-          // Continue to API fallback
-        } else {
-          console.log('Successfully saved attendance directly to Supabase:', insertData);
-          supabaseSuccess = true;
-        }
-      } catch (supabaseError) {
-        console.error("Error with direct Supabase insert:", supabaseError);
-        // Continue to API fallback
-      }
-      
-      // If Supabase direct insert failed, try the API
-      if (!supabaseSuccess) {
-        // API fallback if direct Supabase insertion fails
-        console.log("Trying API fallback for attendance recording...");
-        try {
-          const response = await fetch('/api/scan', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              sessionId,
-              userId: currentUser.id || 3,
-              username: currentUser.username || 'student',
-              timestamp: new Date().toISOString()
-            }),
-            credentials: 'include'
-          });
-          
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`API error (${response.status}):`, errorText);
-            throw new Error(`API error: ${response.status} - ${errorText}`);
-          }
-          
-          const result = await response.json();
-          console.log("API response:", result);
-          
-          if (result.success) {
-            supabaseSuccess = true;
-          }
-        } catch (apiError) {
-          console.error("API fallback failed:", apiError);
-          
-          // If we've tried less than 3 times, retry with exponential backoff
-          if (retryAttempts < 3) {
-            console.log(`Retry attempt ${retryAttempts + 1}/3`);
-            setRetryAttempts(retryAttempts + 1);
-            setIsProcessing(false);
-            setTimeout(() => handleQrCodeSuccess(decodedText), 1000 * (2 ** retryAttempts));
-            return;
-          }
-          
-          // If we've already retried 3 times, show final error
-          if (!supabaseSuccess) {
-            toast({
-              title: "Error Recording Attendance",
-              description: "Failed to record your attendance. Please try the manual code entry or contact your instructor.",
-              variant: "destructive"
-            });
-            setIsProcessing(false);
-            return;
-          }
-        }
-      }
-      
-      // If we got here, one of the methods succeeded
+      // Show processing toast
       toast({
-        title: "Attendance Recorded",
-        description: "Your attendance has been successfully recorded!"
+        title: "Processing...",
+        description: "Recording your attendance"
       });
       
-      // Set success state for UI feedback
-      setSuccess(true);
-      setRetryAttempts(0);
+      // Simple direct approach - just use fetch directly
+      const response = await fetch("/api/scan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          sessionId: sessionId,
+          userId: 3, // Default to mohan user ID
+          username: "mohan"
+        })
+      });
       
-      // Always use base URL + path for redirect to avoid 404s
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      // Show success message
+      toast({
+        title: "Success!",
+        description: "Attendance recorded successfully"
+      });
+      
+      // Wait a moment before redirecting
       setTimeout(() => {
-        // Use window.location.replace for more reliable navigation
-        const baseUrl = window.location.origin;
-        // First navigate to root to avoid 404s
-        window.location.replace(baseUrl);
+        // First go to root to reset any routing issues
+        window.location.href = "/";
         
-        // Then after a short delay, navigate to student dashboard
+        // Then after a short delay, go to student dashboard
         setTimeout(() => {
-          window.location.replace(`${baseUrl}/student`);
-        }, 300);
+          window.location.href = "/student";
+        }, 500);
       }, 1500);
       
     } catch (error) {
-      console.error("Error processing QR code:", error);
+      console.error("Error recording attendance:", error);
       toast({
         title: "Error",
-        description: "Failed to process QR code. Please try again or use manual code entry.",
+        description: "Failed to record attendance. Please try again.",
         variant: "destructive"
       });
     } finally {

@@ -1,4 +1,5 @@
-import { Switch, Route, useLocation } from "wouter";
+import { useEffect } from "react";
+import { Router, Route, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -9,14 +10,55 @@ import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import AdminDashboard from "@/pages/admin-dashboard";
 import StudentDashboard from "@/pages/student-dashboard";
-import { useEffect } from "react";
 import { Bot, Loader2 } from "lucide-react";
 
-function Router() {
-  const { user, isLoading } = useAuth();
-  const [location, setLocation] = useLocation();
+// Create hash-based history for better compatibility with static hosting
+const hashBase = (path: string) => {
+  // We want to use hash routing, so all paths are prefixed with #
+  if (typeof window !== 'undefined') {
+    const hashPath = window.location.hash.replace('#', '') || '/';
+    console.log("Current hash path:", hashPath, "vs path:", path);
+    return hashPath === path;
+  }
+  return false;
+};
 
-  // First useEffect: Handle authentication redirects
+// Custom hook for hash-based navigation
+const useHashLocation = () => {
+  const [location, setLocation] = useLocation();
+  
+  // Update the hash when location changes
+  useEffect(() => {
+    const updateHash = () => {
+      const hash = window.location.hash.replace('#', '') || '/';
+      if (hash !== location) {
+        setLocation(hash);
+      }
+    };
+    
+    // Set initial hash
+    if (location !== '/' || !window.location.hash) {
+      window.location.hash = location;
+    }
+    
+    // Listen for hash changes
+    window.addEventListener('hashchange', updateHash);
+    return () => window.removeEventListener('hashchange', updateHash);
+  }, [location, setLocation]);
+  
+  // Custom navigation function that updates the hash
+  const navigate = (to: string) => {
+    window.location.hash = to;
+  };
+  
+  return [location, navigate];
+};
+
+function RouterContent() {
+  const { user, isLoading } = useAuth();
+  const [location, navigate] = useHashLocation();
+
+  // Handle authentication redirects
   useEffect(() => {
     console.log("Auth state:", { user, isLoading, location });
     
@@ -27,14 +69,14 @@ function Router() {
       if (!user && !isLoginPage) {
         // If not logged in and not on login page, redirect to login
         console.log("User not authenticated, redirecting to login page");
-        window.location.href = "/";
+        navigate("/");
       } else if (user && isLoginPage) {
         // If logged in and on login page, redirect to appropriate dashboard
         console.log("User authenticated, redirecting to dashboard");
         if (user.role === "admin") {
-          window.location.href = "/admin";
+          navigate("/admin");
         } else {
-          window.location.href = "/student";
+          navigate("/student");
         }
       } else if (
         (user && user.role === "admin" && location.startsWith("/student")) ||
@@ -43,13 +85,13 @@ function Router() {
         // Prevent accessing wrong dashboard based on role
         console.log("User tried to access restricted dashboard");
         if (user.role === "admin") {
-          window.location.href = "/admin";
+          navigate("/admin");
         } else {
-          window.location.href = "/student";
+          navigate("/student");
         }
       }
     }
-  }, [user, isLoading, location]);
+  }, [user, isLoading, location, navigate]);
 
   if (isLoading) {
     return (
@@ -104,29 +146,13 @@ function Router() {
   }
 
   // For protected routes, enforce user authentication
-  return (
-    <Switch>
-      {/* Handle exact admin route */}
-      <Route path="/admin">
-        {(params) => user && user.role === "admin" ? <AdminDashboard /> : <Login />}
-      </Route>
-      {/* Handle admin subroutes like /admin/something */}
-      <Route path="/admin/:tab">
-        {(params) => user && user.role === "admin" ? <AdminDashboard /> : <Login />}
-      </Route>
-      {/* Handle exact student route */}
-      <Route path="/student">
-        {(params) => user && user.role === "student" ? <StudentDashboard /> : <Login />}
-      </Route>
-      {/* Handle student subroutes like /student/something */}
-      <Route path="/student/:tab">
-        {(params) => user && user.role === "student" ? <StudentDashboard /> : <Login />}
-      </Route>
-      <Route path="/:rest*">
-        {(params) => <NotFound />}
-      </Route>
-    </Switch>
-  );
+  if (location.startsWith("/admin")) {
+    return user && user.role === "admin" ? <AdminDashboard /> : <Login />;
+  } else if (location.startsWith("/student")) {
+    return user && user.role === "student" ? <StudentDashboard /> : <Login />;
+  } else {
+    return <NotFound />;
+  }
 }
 
 function App() {
@@ -134,7 +160,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="dark">
         <AuthProvider>
-          <Router />
+          <Router hook={useHashLocation}>
+            <RouterContent />
+          </Router>
           <Toaster />
         </AuthProvider>
       </ThemeProvider>

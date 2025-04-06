@@ -1,5 +1,7 @@
 {
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/api/(.*)", "status": 307, "dest": "https://qr-attendance-mdqcdktvi-mohans-projects-0d57f7f8.vercel.app/api/$1" },
+    { "src": "/(.*)", "status": 200, "dest": "/index.html" }
   ]
 } 

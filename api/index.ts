@@ -1335,12 +1335,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         
         // As a fallback, still record in memory
         attendanceRecords.push({
-          sessionId: sessionIdStr,
-          userId: userIdStr,
-          username: usernameStr,
-          name: nameStr,
-          timestamp: isoTimestamp || new Date().toISOString(),
-          status: statusStr,
+          sessionId: sessionId.toString(),
+          userId: user.id.toString(),
+          username: user.username.toString(),
+          name: (user.name || user.username).toString(),
+          timestamp: timestamp || new Date().toISOString(),
+          status: 'present',
           error: true
         });
         

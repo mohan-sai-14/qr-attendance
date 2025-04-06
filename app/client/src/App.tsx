@@ -21,34 +21,35 @@ function Router() {
     console.log("Auth state:", { user, isLoading, location });
     
     if (!isLoading) {
-      if (!user) {
-        // If not logged in, redirect to login page
-        if (location !== "/") {
-          console.log("User not authenticated, redirecting to login page");
-          setLocation("/");
-        }
-      } else if (user && location === "/") {
-        // If logged in and on home/login page, redirect to appropriate dashboard
+      // Cases where we need to stay on the login page, not redirect
+      const isLoginPage = location === "/" || location === "/login" || location === "/register";
+      
+      if (!user && !isLoginPage) {
+        // If not logged in and not on login page, redirect to login
+        console.log("User not authenticated, redirecting to login page");
+        window.location.href = "/";
+      } else if (user && isLoginPage) {
+        // If logged in and on login page, redirect to appropriate dashboard
         console.log("User authenticated, redirecting to dashboard");
         if (user.role === "admin") {
-          setLocation("/admin");
+          window.location.href = "/admin";
         } else {
-          setLocation("/student");
+          window.location.href = "/student";
         }
       } else if (
-        (user.role === "admin" && location.startsWith("/student")) ||
-        (user.role === "student" && location.startsWith("/admin"))
+        (user && user.role === "admin" && location.startsWith("/student")) ||
+        (user && user.role === "student" && location.startsWith("/admin"))
       ) {
         // Prevent accessing wrong dashboard based on role
         console.log("User tried to access restricted dashboard");
         if (user.role === "admin") {
-          setLocation("/admin");
+          window.location.href = "/admin";
         } else {
-          setLocation("/student");
+          window.location.href = "/student";
         }
       }
     }
-  }, [user, isLoading, location, setLocation]);
+  }, [user, isLoading, location]);
 
   if (isLoading) {
     return (
@@ -94,24 +95,32 @@ function Router() {
     );
   }
 
+  // Check for login-related paths
+  const isLoginPage = location === "/" || location === "/login" || location === "/register";
+  
+  // Special case for the root path (login page)
+  if (isLoginPage) {
+    return <Login />;
+  }
+
+  // For protected routes, enforce user authentication
   return (
     <Switch>
-      <Route path="/" component={Login} />
       {/* Handle exact admin route */}
       <Route path="/admin">
-        {(params) => user ? <AdminDashboard /> : <Login />}
+        {(params) => user && user.role === "admin" ? <AdminDashboard /> : <Login />}
       </Route>
       {/* Handle admin subroutes like /admin/something */}
       <Route path="/admin/:tab">
-        {(params) => user ? <AdminDashboard /> : <Login />}
+        {(params) => user && user.role === "admin" ? <AdminDashboard /> : <Login />}
       </Route>
       {/* Handle exact student route */}
       <Route path="/student">
-        {(params) => user ? <StudentDashboard /> : <Login />}
+        {(params) => user && user.role === "student" ? <StudentDashboard /> : <Login />}
       </Route>
       {/* Handle student subroutes like /student/something */}
       <Route path="/student/:tab">
-        {(params) => user ? <StudentDashboard /> : <Login />}
+        {(params) => user && user.role === "student" ? <StudentDashboard /> : <Login />}
       </Route>
       <Route path="/:rest*">
         {(params) => <NotFound />}

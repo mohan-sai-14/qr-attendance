@@ -153,3 +153,29 @@ export function getQRCodeTimeRemaining(session: any) {
   
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
+
+// Auto-end session when time expires
+export function setupSessionExpirationHandler(session: any, onExpire: () => void) {
+  if (!session || !session.expires_at) {
+    return null;
+  }
+  
+  const expiryTime = new Date(session.expires_at).getTime();
+  const currentTime = Date.now();
+  const timeUntilExpiry = Math.max(0, expiryTime - currentTime);
+  
+  if (timeUntilExpiry <= 0) {
+    // Already expired
+    onExpire();
+    return null;
+  }
+  
+  // Set a timeout to automatically end the session when it expires
+  const timeoutId = setTimeout(() => {
+    console.log('Session expired automatically');
+    onExpire();
+  }, timeUntilExpiry);
+  
+  // Return the timeout ID so it can be cleared if needed
+  return timeoutId;
+}

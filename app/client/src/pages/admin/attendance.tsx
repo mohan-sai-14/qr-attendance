@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,6 +13,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AttendanceRecord } from "@/types";
+import { toast } from "@/components/ui/use-toast";
+import { createClient } from '@supabase/supabase-js';
+import { isQRCodeExpired, getQRCodeTimeRemaining, setupSessionExpirationHandler } from "@/lib/qrcode";
+
+// Initialize Supabase
+const supabaseUrl = 'https://qwavakkbfpdgkvtctogx.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXZha2tiZnBkZ2t2dGN0b2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3MTE4MjYsImV4cCI6MjA1ODI4NzgyNn0.Kdwo9ICmcsHPhK_On6G73ccSPkcEqzAg2BtvblhD8co';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function Attendance() {
   const [sessionFilter, setSessionFilter] = useState<string>("all");
@@ -22,9 +30,12 @@ export default function Attendance() {
   const [sessionStats, setSessionStats] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [sessionName, setSessionName] = useState<string>("");
-  const [sessionDate, setSessionDate] = useState<string>("");
+  const [sessionDate, setSessionDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [sessionTime, setSessionTime] = useState<string>("");
   const [sessionDuration, setSessionDuration] = useState<string>("60");
+  const [timeRemaining, setTimeRemaining] = useState<string>("0:00");
+  const [expirationIntervalId, setExpirationIntervalId] = useState<any>(null);
+  const sessionExpirationTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch all sessions and students
   useEffect(() => {
@@ -232,6 +243,170 @@ export default function Attendance() {
     exportAttendanceToExcel(attendanceRecords, activeSession.name);
   };
 
+  // Fetch active session and attendance data
+  const fetchActiveSession = async () => {
+    try {
+      // First get the active session
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+        
+      if (sessionError && sessionError.code !== 'PGRST116') {
+        console.error('Error fetching active session:', sessionError);
+        return;
+      }
+      
+      if (sessionData) {
+        console.log('Active session found:', sessionData);
+        setActiveSession(sessionData);
+        
+        // Set QR code data
+        if (sessionData.qr_code) {
+          try {
+            setQrCodeData(sessionData.qr_code);
+            setQrCodeUrl(new URL(sessionData.qr_code).href);
+          } catch {
+            setQrCodeData(sessionData.id);
+          }
+        } else {
+          setQrCodeData(sessionData.id);
+        }
+        
+        // Check if session has expired
+        if (isQRCodeExpired(sessionData)) {
+          console.log('Session has expired, ending it automatically');
+          await endSession(sessionData.id);
+        } else {
+          // Set up automatic expiration
+          setupSessionExpiration(sessionData);
+          
+          // Start time remaining countdown
+          if (expirationIntervalId) {
+            clearInterval(expirationIntervalId);
+          }
+          
+          const intervalId = setInterval(() => {
+            const remaining = getQRCodeTimeRemaining(sessionData);
+            setTimeRemaining(remaining);
+            
+            if (remaining === "0:00") {
+              clearInterval(intervalId);
+              endSession(sessionData.id);
+            }
+          }, 1000);
+          
+          setExpirationIntervalId(intervalId);
+        }
+      } else {
+        setActiveSession(null);
+        setQrCodeData("");
+        setQrCodeUrl("");
+        
+        // Clear any existing interval
+        if (expirationIntervalId) {
+          clearInterval(expirationIntervalId);
+          setExpirationIntervalId(null);
+        }
+      }
+    } catch (error) {
+      console.error('Error in fetchActiveSession:', error);
+    }
+  };
+
+  // Set up automatic session expiration
+  const setupSessionExpiration = (session: any) => {
+    // Clear any existing timeout
+    if (sessionExpirationTimeout.current) {
+      clearTimeout(sessionExpirationTimeout.current);
+      sessionExpirationTimeout.current = null;
+    }
+    
+    // Set up new timeout
+    const timeoutId = setupSessionExpirationHandler(session, () => {
+      endSession(session.id);
+    });
+    
+    if (timeoutId) {
+      sessionExpirationTimeout.current = timeoutId;
+    }
+  };
+
+  // End a session
+  const endSession = async (sessionId: string) => {
+    try {
+      // Update the session in the database
+      const { data, error } = await supabase
+        .from('sessions')
+        .update({ is_active: false })
+        .eq('id', sessionId);
+        
+      if (error) {
+        console.error('Error ending session:', error);
+        toast({
+          title: "Error",
+          description: "Failed to end session. Please try again.",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      // Update UI
+      setActiveSession(null);
+      setQrCodeData("");
+      setQrCodeUrl("");
+      
+      // Clear intervals and timeouts
+      if (expirationIntervalId) {
+        clearInterval(expirationIntervalId);
+        setExpirationIntervalId(null);
+      }
+      
+      if (sessionExpirationTimeout.current) {
+        clearTimeout(sessionExpirationTimeout.current);
+        sessionExpirationTimeout.current = null;
+      }
+      
+      toast({
+        title: "Success",
+        description: "Session ended successfully"
+      });
+      
+      // Refresh sessions
+      fetchActiveSession();
+    } catch (error) {
+      console.error('Error in endSession:', error);
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred"
+      });
+    }
+  };
+
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchActiveSession();
+    
+    // Set up polling for data refresh (every 30 seconds)
+    const intervalId = setInterval(fetchActiveSession, 30000);
+    
+    return () => {
+      clearInterval(intervalId);
+      
+      // Clear any session expiration intervals or timeouts
+      if (expirationIntervalId) {
+        clearInterval(expirationIntervalId);
+      }
+      
+      if (sessionExpirationTimeout.current) {
+        clearTimeout(sessionExpirationTimeout.current);
+      }
+    };
+  }, []);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -277,13 +452,35 @@ export default function Attendance() {
                   </Button>
                   <Button variant="outline" onClick={() => {
                     if (confirm("Are you sure you want to end this session?")) {
+                      // First update the UI optimistically
+                      setActiveSession(null);
+                      
+                      // Then update the database
                       supabase
                         .from('sessions')
                         .update({ is_active: false })
                         .eq('id', activeSession.id)
-                        .then(() => {
-                          setActiveSession(null);
-                          window.location.reload();
+                        .then(({ data, error }) => {
+                          if (error) {
+                            console.error("Error ending session:", error);
+                            toast({
+                              title: "Error",
+                              description: "Failed to end session. Please try again.",
+                              variant: "destructive"
+                            });
+                            // Revert UI state if there was an error
+                            fetchActiveSession();
+                          } else {
+                            console.log("Session ended successfully:", data);
+                            toast({
+                              title: "Success",
+                              description: "Session ended successfully"
+                            });
+                            // Use router navigation instead of window.location.reload()
+                            setTimeout(() => {
+                              window.location.href = window.location.origin + "/admin";
+                            }, 1000);
+                          }
                         });
                     }
                   }}>

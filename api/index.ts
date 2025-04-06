@@ -309,29 +309,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      // For demo, return a list of mock sessions
-      return res.status(200).json([
-        {
-          id: '1',
-          name: 'Robotics Workshop',
-          date: new Date().toISOString().split('T')[0],
-          time: '10:00 AM',
-          duration: 60,
-          status: 'active',
-          attendance: 15,
-          total: 20
-        },
-        {
-          id: '2',
-          name: 'Programming Basics',
-          date: new Date(Date.now() - 86400000).toISOString().split('T')[0], // Yesterday
-          time: '2:00 PM',
-          duration: 90,
-          status: 'completed',
-          attendance: 18,
-          total: 22
+      try {
+        // First, check and update any expired sessions
+        const now = new Date().toISOString();
+        
+        // Update any sessions that have expired but are still marked as active
+        await supabase
+          .from('sessions')
+          .update({ is_active: false })
+          .eq('is_active', true)
+          .lt('expires_at', now);
+        
+        // Get all sessions, ordered by most recent first
+        const { data: sessions, error } = await supabase
+          .from('sessions')
+          .select('*')
+          .order('created_at', { ascending: false });
+          
+        if (error) {
+          console.error('Error fetching sessions:', error);
+          throw error;
         }
-      ]);
+        
+        return res.status(200).json(sessions || []);
+      } catch (error) {
+        console.error('Error in sessions endpoint:', error);
+        return res.status(500).json({ 
+          error: 'Failed to fetch sessions',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     }
     
     // Handle active session endpoint
@@ -346,49 +353,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         url: req.url
       });
       
-      if (!user) {
-        // Instead of returning an error for no user, just create a demo user session
-        // This makes the app more usable in development and demo scenarios
-        const isAdmin = req.url?.includes('/admin');
-        const isStudent = req.url?.includes('/student') || !isAdmin;
-        
-        // Create demo user based on path context
-        const demoUser = isAdmin ? demoUsers.admin : demoUsers.mohan;
-        console.log(`Creating demo user session for ${isAdmin ? 'admin' : 'student'} context:`, demoUser.username);
-        
-        // Generate a new session ID for this demo user
-        const newSessionId = Math.random().toString(36).substring(2);
-        const expiresAt = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
-        
-        // Store session
-        sessions[newSessionId] = {
-          user: demoUser,
-          expiresAt
-        };
-        
-        // Set cookie for future requests
-        res.setHeader('Set-Cookie', `sessionId=${newSessionId}; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=86400`);
-        
-        // Continue with the request now that we have a user
-      }
-      
       try {
-        // Fetch the most recent session from Supabase
+        // First, check and update any expired sessions
+        const now = new Date().toISOString();
+        
+        // Update any sessions that have expired but are still marked as active
+        await supabase
+          .from('sessions')
+          .update({ is_active: false })
+          .eq('is_active', true)
+          .lt('expires_at', now);
+        
+        // Fetch the most recent active session from Supabase
         const { data: sessionData, error } = await supabase
           .from('sessions')
           .select('*')
-          .order('id', { ascending: false })
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
         
         if (error && error.code !== 'PGRST116') { // Ignore "no rows returned" error
-          console.error('Error fetching session from Supabase:', error);
+          console.error('Error fetching active session from Supabase:', error);
           throw error;
         }
         
         if (!sessionData) {
           // Fallback to demo data if no session found
-          console.log('No session found in database, using fallback data');
+          console.log('No active session found in database, using fallback data');
           const currentTime = new Date();
           const sessionEndTime = new Date(currentTime);
           sessionEndTime.setMinutes(sessionEndTime.getMinutes() + 60);
@@ -418,10 +410,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const sessionEndTime = new Date(sessionStartTime);
         sessionEndTime.setMinutes(sessionStartTime.getMinutes() + sessionData.duration);
         
-        // Check if session is still active - for demo, always consider it active
-        const isActive = process.env.NODE_ENV !== 'production' || sessionEndTime > new Date();
+        // Check if session is still active based on the is_active flag
+        const isActive = sessionData.is_active;
         
-        // Return the formatted session
+        // Get attendance count for this session
+        const { count: attendanceCount, error: countError } = await supabase
+          .from('attendance')
+          .select('*', { count: 'exact', head: true })
+          .eq('session_id', sessionData.id.toString());
+          
+        // Get total student count
+        const { count: totalStudents, error: studentsError } = await supabase
+          .from('users')
+          .select('*', { count: 'exact', head: true })
+          .eq('role', 'student');
+        
+        // Return the formatted session with attendance stats
         return res.status(200).json({
           id: sessionData.id.toString(),
           name: sessionData.name,
@@ -429,10 +433,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           time: sessionData.time,
           duration: sessionData.duration,
           status: isActive ? 'active' : 'completed',
-          attendance: 15, // Default value, would be calculated from attendance records
-          total: 20,      // Default value, would be calculated from enrollment
+          attendance: attendanceCount || 0,
+          total: totalStudents || 20,
           is_active: isActive,
-          expires_at: sessionEndTime.toISOString(),
+          expires_at: sessionData.expires_at || sessionEndTime.toISOString(),
           checked_in: true, // Would be checked against attendance records
           check_in_time: new Date(sessionStartTime.getTime() + 5 * 60000).toISOString() // 5 min after start
         });
@@ -1121,27 +1125,99 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // For the timestamp field, use ISO format
         const isoTimestamp = timestamp || now.toISOString();
         
-        // ALWAYS USE HARDCODED TEST SESSION FOR RELIABILITY
-        // This ensures we can record attendance even if the session doesn't exist yet
-        // In production, you'd want to create or find the actual session
-        let sessionData = {
-          id: sessionId,
-          name: `Session ${sessionId}`,
-          date: dateString,
-          time: `${now.getHours()}:${now.getMinutes()}`,
-          duration: 60,
-          is_active: true
-        };
+        // First, ensure the session exists
+        let sessionExists = false;
+        let sessionData = null;
+        let sessionName = `Session ${sessionId}`;
         
-        console.log('Using session data:', sessionData);
+        try {
+          // Try to find the session in database
+          const { data, error } = await supabase
+            .from('sessions')
+            .select('*')
+            .eq('id', sessionId.toString())
+            .maybeSingle();
+            
+          if (error && error.code !== 'PGRST116') {
+            console.error(`Error checking session ${sessionId}:`, error);
+          } else if (data) {
+            sessionExists = true;
+            sessionData = data;
+            sessionName = data.name;
+            console.log('Found session data:', sessionData);
+          } else {
+            console.log(`Session ${sessionId} not found in database, will create minimal record`);
+            
+            // Try to create a minimal session if it doesn't exist
+            try {
+              const { data: newSession, error: createError } = await supabase
+                .from('sessions')
+                .insert({
+                  id: sessionId,
+                  name: `Session ${sessionId}`,
+                  date: dateString,
+                  time: `${now.getHours()}:${now.getMinutes()}`,
+                  duration: 60,
+                  is_active: true,
+                  created_at: now.toISOString(),
+                  expires_at: new Date(now.getTime() + 60 * 60000).toISOString() // 1 hour from now
+                })
+                .select()
+                .single();
+                
+              if (createError) {
+                console.error('Failed to create session record:', createError);
+              } else {
+                sessionExists = true;
+                sessionData = newSession;
+                sessionName = newSession.name;
+                console.log('Created minimal session record:', newSession);
+              }
+            } catch (createError) {
+              console.error('Error creating session:', createError);
+            }
+          }
+        } catch (sessionCheckError) {
+          console.error('Error checking for session:', sessionCheckError);
+        }
         
         // Check if user already has an attendance record for this session
-        // We'll skip this check for now to ensure we can record attendance
+        let attendanceRecordExists = false;
         
-        // Get session name from session data
-        const sessionName = sessionData?.name || `Session ${sessionId}`;
+        try {
+          const { data, error } = await supabase
+            .from('attendance')
+            .select('*')
+            .eq('session_id', sessionId.toString())
+            .eq('user_id', user.id.toString())
+            .maybeSingle();
+            
+          if (error && error.code !== 'PGRST116') {
+            console.error(`Error checking existing attendance:`, error);
+          } else if (data) {
+            attendanceRecordExists = true;
+            console.log('Found existing attendance record:', data);
+          }
+        } catch (attendanceCheckError) {
+          console.error('Error checking attendance:', attendanceCheckError);
+        }
         
-        // Create simple string versions of all values to avoid type issues
+        // If attendance already recorded, just return success
+        if (attendanceRecordExists) {
+          console.log('Attendance already recorded for this session and user');
+          
+          const baseUrl = req.headers.host?.includes('localhost') 
+            ? 'http://localhost:3000' 
+            : 'https://qr-attendance-gules.vercel.app';
+            
+          return res.status(200).json({
+            success: true,
+            message: 'Attendance already recorded for this session',
+            redirectUrl: `${baseUrl}/student`
+          });
+        }
+        
+        // Try to create attendance record
         const attendanceData = {
           session_id: sessionId.toString(),
           user_id: user.id.toString(),
@@ -1150,131 +1226,131 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           check_in_time: isoTimestamp,
           date: dateString,
           status: 'present',
-          session_name: sessionName.toString()
+          session_name: sessionName
         };
         
-        console.log('Inserting attendance record with data:', attendanceData);
+        console.log('Inserting attendance record:', attendanceData);
         
-        let insertSuccess = false;
-        let insertError = null;
-        
-        // Try direct REST API call to Supabase first
+        // First try normal INSERT
         try {
-          console.log('Attempting direct REST API call to Supabase');
-          const response = await fetch(`${supabaseUrl}/rest/v1/attendance`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': supabaseKey,
-              'Authorization': `Bearer ${supabaseKey}`,
-              'Prefer': 'return=minimal'
-            },
-            body: JSON.stringify(attendanceData)
+          const { data, error } = await supabase
+            .from('attendance')
+            .insert([attendanceData])
+            .select();
+            
+          if (error) {
+            console.error('Error inserting attendance:', error);
+            throw error;
+          }
+          
+          console.log('Successfully recorded attendance:', data);
+          
+          // Return successful response
+          const baseUrl = req.headers.host?.includes('localhost') 
+            ? 'http://localhost:3000' 
+            : 'https://qr-attendance-gules.vercel.app';
+            
+          return res.status(200).json({
+            success: true,
+            message: 'Attendance recorded successfully',
+            redirectUrl: `${baseUrl}/student`
           });
+        } catch (insertError) {
+          console.error('Insert error, trying direct SQL:', insertError);
           
-          if (response.ok) {
-            console.log('Successfully inserted attendance using REST API');
-            insertSuccess = true;
-          } else {
-            const errorData = await response.text();
-            console.error('Failed to insert using REST API:', response.status, errorData);
-            insertError = new Error(errorData);
-          }
-        } catch (restError) {
-          console.error('Error with direct REST API call:', restError);
-          insertError = restError;
-        }
-        
-        // Fallback to Supabase client if REST API call failed
-        if (!insertSuccess) {
+          // Try with direct SQL as fallback
           try {
-            console.log('Trying insertion with Supabase client');
-            const { data, error } = await supabase
-              .from('attendance')
-              .insert(attendanceData);
-              
-            if (error) {
-              console.error('Error using Supabase client:', error);
-              insertError = error;
-            } else {
-              console.log('Successfully inserted attendance with Supabase client');
-              insertSuccess = true;
+            const { data: sqlData, error: sqlError } = await supabase.rpc(
+              'insert_attendance_record',
+              {
+                p_session_id: sessionId.toString(),
+                p_user_id: user.id.toString(),
+                p_username: user.username.toString(),
+                p_name: (user.name || user.username).toString(),
+                p_check_in_time: isoTimestamp,
+                p_date: dateString,
+                p_status: 'present',
+                p_session_name: sessionName
+              }
+            );
+            
+            if (sqlError) {
+              console.error('SQL insert error:', sqlError);
+              throw sqlError;
             }
-          } catch (supabaseError) {
-            console.error('Exception during Supabase client insert:', supabaseError);
-            insertError = supabaseError;
+            
+            console.log('Successfully recorded attendance via SQL:', sqlData);
+            
+            // Return successful response
+            const baseUrl = req.headers.host?.includes('localhost') 
+              ? 'http://localhost:3000' 
+              : 'https://qr-attendance-gules.vercel.app';
+              
+            return res.status(200).json({
+              success: true,
+              message: 'Attendance recorded successfully via SQL',
+              redirectUrl: `${baseUrl}/student`
+            });
+          } catch (sqlInsertError) {
+            console.error('All insertion methods failed:', sqlInsertError);
+            
+            // Store in memory as last resort
+            attendanceRecords.push({
+              sessionId: sessionId.toString(),
+              userId: user.id.toString(),
+              username: user.username.toString(),
+              name: (user.name || user.username).toString(),
+              timestamp: isoTimestamp,
+              status: 'present',
+              session_name: sessionName,
+              inMemoryOnly: true
+            });
+            
+            console.log('Stored attendance in memory:', attendanceRecords[attendanceRecords.length - 1]);
+            
+            // Return "success" but indicate it's memory-only
+            const baseUrl = req.headers.host?.includes('localhost') 
+              ? 'http://localhost:3000' 
+              : 'https://qr-attendance-gules.vercel.app';
+              
+            return res.status(200).json({
+              success: true,
+              message: 'Attendance recorded in memory only',
+              redirectUrl: `${baseUrl}/student`,
+              memoryOnly: true
+            });
           }
         }
-        
-        // Always record in local memory as well (for backup purposes)
-        attendanceRecords.push({
-          sessionId,
-          userId: user.id,
-          username: user.username,
-          name: user.name || user.username,
-          timestamp: isoTimestamp,
-          status: 'present',
-          databaseInserted: insertSuccess
-        });
-        
-        console.log('Memory record added:', attendanceRecords[attendanceRecords.length - 1]);
-        
-        // Build and return response
-        const baseUrl = req.headers.host?.includes('localhost') 
-          ? 'http://localhost:3000' 
-          : 'https://qr-attendance-gules.vercel.app';
-          
-        console.log('Returning success response with redirect to:', `${baseUrl}/student`);
-        
-        return res.status(200).json({ 
-          success: true, 
-          message: insertSuccess 
-            ? 'Attendance recorded successfully' 
-            : 'Attendance recorded in memory only',
-          redirectUrl: `${baseUrl}/student`,
-          insertedInDatabase: insertSuccess,
-          error: insertSuccess ? null : (insertError?.message || 'Unknown database error'),
-          memoryRecord: attendanceRecords[attendanceRecords.length - 1]
-        });
       } catch (error) {
         console.error('Error recording attendance:', error);
         
         // As a fallback, still record in memory
         attendanceRecords.push({
-          sessionId,
-          userId: user.id || 0,
-          username: user.username || 'unknown',
-          name: user.name || 'Unknown User',
-          timestamp: timestamp || new Date().toISOString(),
+          sessionId: sessionId.toString(),
+          userId: user.id.toString(),
+          username: user.username.toString(),
+          name: (user.name || user.username).toString(),
+          timestamp: isoTimestamp || new Date().toISOString(),
           status: 'present',
           error: true
         });
         
-        console.log('Error fallback memory record added:', attendanceRecords[attendanceRecords.length - 1]);
-        
-        // Log detailed error information for troubleshooting
+        // Log detailed error information
         console.error('Detailed error info:', {
           error: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : null,
-          user: user ? { id: user.id, username: user.username } : 'No user',
-          sessionId,
-          timestamp
+          stack: error instanceof Error ? error.stack : null
         });
         
-        // Return success anyway with an error indicator
-        // This ensures the client can proceed with navigation
+        // Return a "success" response anyway to avoid UI issues
         const baseUrl = req.headers.host?.includes('localhost') 
           ? 'http://localhost:3000' 
           : 'https://qr-attendance-gules.vercel.app';
           
-        return res.status(200).json({ 
-          success: true, // Always return success for better UX
-          message: 'Attendance recorded in memory only',
-          error: error instanceof Error ? error.message : 'Unknown error',
+        return res.status(200).json({
+          success: true,
+          message: 'Error occurred but proceeding with navigation',
           redirectUrl: `${baseUrl}/student`,
-          insertedInDatabase: false,
-          memoryOnly: true,
-          memoryRecord: attendanceRecords[attendanceRecords.length - 1]
+          error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
     }

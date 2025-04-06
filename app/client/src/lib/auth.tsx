@@ -47,28 +47,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('No authenticated user found');
           setUser(null);
           localStorage.removeItem('user');
+          // Redirect to login page if not authenticated
+          redirectToLogin();
         }
       } catch (error) {
         console.error('Error checking auth status:', error);
         
-        // Try to get user from localStorage as a fallback
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          try {
-            setUser(JSON.parse(storedUser));
-          } catch (e) {
-            localStorage.removeItem('user');
-            setUser(null);
-          }
-        } else {
-          setUser(null);
-        }
+        // Clear user data from localStorage to prevent unauthorized access
+        localStorage.removeItem('user');
+        setUser(null);
+        
+        // Redirect to login page on auth error
+        redirectToLogin();
       } finally {
         setIsLoading(false);
       }
     };
 
+    // Helper function to redirect to login
+    const redirectToLogin = () => {
+      // Only redirect if we're not already on the login page
+      if (!window.location.pathname.includes('/login') && 
+          !window.location.pathname.includes('/register')) {
+        console.log('Redirecting to login page');
+        window.location.href = '/login';
+      }
+    };
+
     checkAuthStatus();
+    
+    // Also add event listener for page visibility changes
+    // This helps catch when a user switches back to the app after it's been in background
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        checkAuthStatus();
+      }
+    });
+    
+    return () => {
+      document.removeEventListener('visibilitychange', () => {});
+    };
   }, []);
 
   const login = async (username: string, password: string): Promise<User> => {

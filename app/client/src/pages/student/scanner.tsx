@@ -100,23 +100,49 @@ const StudentScannerPage: React.FC = () => {
     
     // Try to refresh user session if needed
     const checkAuth = async () => {
-      if (!user) {
-        try {
-          // Ensure user is authenticated by making a direct request
-          const authResponse = await axios.get('/api/me', { withCredentials: true });
-          console.log('Authentication response:', authResponse.data);
-          
-          if (authResponse.data) {
-            await refreshUser();
+      try {
+        // Always ensure user is authenticated, regardless of existing user state
+        const authResponse = await axios.get('/api/me', { 
+          withCredentials: true,
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
           }
-        } catch (error) {
-          console.error("Unable to refresh authentication:", error);
+        });
+        
+        console.log('Authentication check response:', authResponse.data);
+        
+        if (!authResponse.data || !authResponse.data.id) {
+          console.log('Not authenticated, redirecting to login page');
+          window.location.href = '/login';
+          return;
         }
+        
+        // Refresh user even if we have one
+        await refreshUser();
+      } catch (error) {
+        console.error("Authentication error:", error);
+        // Redirect to login on auth error
+        window.location.href = '/login';
       }
     };
     
     checkAuth();
-  }, [user, refreshUser]);
+    
+    // Add event listener for visibility changes
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('Page became visible, checking auth...');
+        checkAuth();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshUser]);
 
   const handleQrCodeSuccess = async (decodedText: string) => {
     if (isProcessing) return; // Prevent multiple simultaneous submissions

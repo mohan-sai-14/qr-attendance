@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-import { Router, Route, useLocation } from "wouter";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -12,59 +11,46 @@ import AdminDashboard from "@/pages/admin-dashboard";
 import StudentDashboard from "@/pages/student-dashboard";
 import { Bot, Loader2 } from "lucide-react";
 
-// Create hash-based history for better compatibility with static hosting
-const hashBase = (path: string) => {
-  // We want to use hash routing, so all paths are prefixed with #
-  if (typeof window !== 'undefined') {
-    const hashPath = window.location.hash.replace('#', '') || '/';
-    console.log("Current hash path:", hashPath, "vs path:", path);
-    return hashPath === path;
-  }
-  return false;
-};
-
-// Custom hook for hash-based navigation
-const useHashLocation = () => {
-  const [location, setLocation] = useLocation();
+// Simple custom hook for hash-based routing
+function useHashRouter() {
+  // Store current route in state
+  const [currentRoute, setCurrentRoute] = useState('/');
   
-  // Update the hash when location changes
+  // Update state when hash changes
   useEffect(() => {
-    const updateHash = () => {
+    // Function to handle hash changes
+    const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '') || '/';
-      if (hash !== location) {
-        setLocation(hash);
-      }
+      setCurrentRoute(hash);
     };
     
-    // Set initial hash
-    if (location !== '/' || !window.location.hash) {
-      window.location.hash = location;
-    }
+    // Set initial route based on hash
+    handleHashChange();
     
     // Listen for hash changes
-    window.addEventListener('hashchange', updateHash);
-    return () => window.removeEventListener('hashchange', updateHash);
-  }, [location, setLocation]);
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
   
-  // Custom navigation function that updates the hash
+  // Navigation function
   const navigate = (to: string) => {
     window.location.hash = to;
   };
   
-  return [location, navigate];
-};
+  return { currentRoute, navigate };
+}
 
 function RouterContent() {
   const { user, isLoading } = useAuth();
-  const [location, navigate] = useHashLocation();
+  const { currentRoute, navigate } = useHashRouter();
 
   // Handle authentication redirects
   useEffect(() => {
-    console.log("Auth state:", { user, isLoading, location });
+    console.log("Auth state:", { user, isLoading, currentRoute });
     
     if (!isLoading) {
       // Cases where we need to stay on the login page, not redirect
-      const isLoginPage = location === "/" || location === "/login" || location === "/register";
+      const isLoginPage = currentRoute === "/" || currentRoute === "/login" || currentRoute === "/register";
       
       if (!user && !isLoginPage) {
         // If not logged in and not on login page, redirect to login
@@ -79,8 +65,8 @@ function RouterContent() {
           navigate("/student");
         }
       } else if (
-        (user && user.role === "admin" && location.startsWith("/student")) ||
-        (user && user.role === "student" && location.startsWith("/admin"))
+        (user && user.role === "admin" && currentRoute.startsWith("/student")) ||
+        (user && user.role === "student" && currentRoute.startsWith("/admin"))
       ) {
         // Prevent accessing wrong dashboard based on role
         console.log("User tried to access restricted dashboard");
@@ -91,7 +77,7 @@ function RouterContent() {
         }
       }
     }
-  }, [user, isLoading, location, navigate]);
+  }, [user, isLoading, currentRoute, navigate]);
 
   if (isLoading) {
     return (
@@ -138,7 +124,7 @@ function RouterContent() {
   }
 
   // Check for login-related paths
-  const isLoginPage = location === "/" || location === "/login" || location === "/register";
+  const isLoginPage = currentRoute === "/" || currentRoute === "/login" || currentRoute === "/register";
   
   // Special case for the root path (login page)
   if (isLoginPage) {
@@ -146,9 +132,9 @@ function RouterContent() {
   }
 
   // For protected routes, enforce user authentication
-  if (location.startsWith("/admin")) {
+  if (currentRoute.startsWith("/admin")) {
     return user && user.role === "admin" ? <AdminDashboard /> : <Login />;
-  } else if (location.startsWith("/student")) {
+  } else if (currentRoute.startsWith("/student")) {
     return user && user.role === "student" ? <StudentDashboard /> : <Login />;
   } else {
     return <NotFound />;
@@ -160,9 +146,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="dark">
         <AuthProvider>
-          <Router hook={useHashLocation}>
-            <RouterContent />
-          </Router>
+          <RouterContent />
           <Toaster />
         </AuthProvider>
       </ThemeProvider>

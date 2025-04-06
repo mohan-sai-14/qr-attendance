@@ -1125,17 +1125,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // For the timestamp field, use ISO format
         const isoTimestamp = timestamp || now.toISOString();
         
+        // Create simple string versions of all values to avoid type issues
+        const sessionIdStr = sessionId.toString();
+        const userIdStr = user.id.toString();
+        const usernameStr = user.username.toString();
+        const nameStr = (user.name || user.username).toString();
+        const dateStr = dateString;
+        const statusStr = 'present';
+        const sessionNameStr = `Session ${sessionId}`;
+        
         // First, ensure the session exists
         let sessionExists = false;
         let sessionData = null;
-        let sessionName = `Session ${sessionId}`;
+        let sessionName = sessionNameStr;
         
         try {
           // Try to find the session in database
           const { data, error } = await supabase
             .from('sessions')
             .select('*')
-            .eq('id', sessionId.toString())
+            .eq('id', sessionIdStr)
             .maybeSingle();
             
           if (error && error.code !== 'PGRST116') {
@@ -1154,8 +1163,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 .from('sessions')
                 .insert({
                   id: sessionId,
-                  name: `Session ${sessionId}`,
-                  date: dateString,
+                  name: sessionNameStr,
+                  date: dateStr,
                   time: `${now.getHours()}:${now.getMinutes()}`,
                   duration: 60,
                   is_active: true,
@@ -1188,8 +1197,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const { data, error } = await supabase
             .from('attendance')
             .select('*')
-            .eq('session_id', sessionId.toString())
-            .eq('user_id', user.id.toString())
+            .eq('session_id', sessionIdStr)
+            .eq('user_id', userIdStr)
             .maybeSingle();
             
           if (error && error.code !== 'PGRST116') {
@@ -1219,14 +1228,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         
         // Try to create attendance record
         const attendanceData = {
-          session_id: sessionId.toString(),
-          user_id: user.id.toString(),
-          username: user.username.toString(),
-          name: (user.name || user.username).toString(),
+          session_id: sessionIdStr,
+          user_id: userIdStr,
+          username: usernameStr,
+          name: nameStr,
           check_in_time: isoTimestamp,
-          date: dateString,
-          status: 'present',
-          session_name: sessionName
+          date: dateStr,
+          status: statusStr,
+          session_name: sessionNameStr
         };
         
         console.log('Inserting attendance record:', attendanceData);
@@ -1263,14 +1272,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const { data: sqlData, error: sqlError } = await supabase.rpc(
               'insert_attendance_record',
               {
-                p_session_id: sessionId.toString(),
-                p_user_id: user.id.toString(),
-                p_username: user.username.toString(),
-                p_name: (user.name || user.username).toString(),
+                p_session_id: sessionIdStr,
+                p_user_id: userIdStr,
+                p_username: usernameStr,
+                p_name: nameStr,
                 p_check_in_time: isoTimestamp,
-                p_date: dateString,
-                p_status: 'present',
-                p_session_name: sessionName
+                p_date: dateStr,
+                p_status: statusStr,
+                p_session_name: sessionNameStr
               }
             );
             
@@ -1296,13 +1305,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             
             // Store in memory as last resort
             attendanceRecords.push({
-              sessionId: sessionId.toString(),
-              userId: user.id.toString(),
-              username: user.username.toString(),
-              name: (user.name || user.username).toString(),
+              sessionId: sessionIdStr,
+              userId: userIdStr,
+              username: usernameStr,
+              name: nameStr,
               timestamp: isoTimestamp,
-              status: 'present',
-              session_name: sessionName,
+              status: statusStr,
+              session_name: sessionNameStr,
               inMemoryOnly: true
             });
             
@@ -1326,12 +1335,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         
         // As a fallback, still record in memory
         attendanceRecords.push({
-          sessionId: sessionId.toString(),
-          userId: user.id.toString(),
-          username: user.username.toString(),
-          name: (user.name || user.username).toString(),
+          sessionId: sessionIdStr,
+          userId: userIdStr,
+          username: usernameStr,
+          name: nameStr,
           timestamp: isoTimestamp || new Date().toISOString(),
-          status: 'present',
+          status: statusStr,
           error: true
         });
         

@@ -24,6 +24,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Helper function to redirect to login
+  const redirectToLogin = () => {
+    // Only redirect if we're not already on the login page
+    if (!window.location.pathname.includes('/login') && 
+        !window.location.pathname.includes('/register') &&
+        window.location.pathname !== '/') {
+      console.log('Redirecting to login page');
+      window.location.href = '/';
+    }
+  };
+
   // Check if user is logged in on initial load
   useEffect(() => {
     const checkAuthStatus = async () => {
@@ -61,16 +72,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         redirectToLogin();
       } finally {
         setIsLoading(false);
-      }
-    };
-
-    // Helper function to redirect to login
-    const redirectToLogin = () => {
-      // Only redirect if we're not already on the login page
-      if (!window.location.pathname.includes('/login') && 
-          !window.location.pathname.includes('/register')) {
-        console.log('Redirecting to login page');
-        window.location.href = '/login';
       }
     };
 

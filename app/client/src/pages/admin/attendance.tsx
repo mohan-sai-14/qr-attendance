@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AttendanceRecord } from "@/types";
-import { toast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { createClient } from '@supabase/supabase-js';
 import { isQRCodeExpired, getQRCodeTimeRemaining, setupSessionExpirationHandler } from "@/lib/qrcode";
 
@@ -36,6 +36,7 @@ export default function Attendance() {
   const [timeRemaining, setTimeRemaining] = useState<string>("0:00");
   const [expirationIntervalId, setExpirationIntervalId] = useState<any>(null);
   const sessionExpirationTimeout = useRef<NodeJS.Timeout | null>(null);
+  const { toast } = useToast();
 
   // Fetch all sessions and students
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { SimpleLink } from "@/components/ui/simple-link";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -15,8 +16,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
-import { ExternalLink, Calendar, Clock, Check, BellRing, CalendarCheck, Home } from "lucide-react";
+import { ExternalLink, Calendar, Clock, Check, BellRing, CalendarCheck, Home, QrCode, ClipboardCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 // Type for the attendance record
 interface AttendanceRecord {
@@ -52,6 +54,19 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
+  const [activeSection, setActiveSection] = useState("home");
+
+  // Detect current section from URL hash
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash.includes('/student/scan')) {
+      setActiveSection('scanner');
+    } else if (hash.includes('/student/attendance')) {
+      setActiveSection('attendance');
+    } else {
+      setActiveSection('home');
+    }
+  }, []);
 
   // Fetch active session
   useEffect(() => {
@@ -168,8 +183,15 @@ export default function StudentDashboard() {
     );
   };
 
+  // Navigation items
+  const navigationItems = [
+    { id: "home", label: "Home", icon: <Home className="h-5 w-5" />, path: "/student" },
+    { id: "scanner", label: "Scan QR", icon: <QrCode className="h-5 w-5" />, path: "/student/scan" },
+    { id: "attendance", label: "My Attendance", icon: <ClipboardCheck className="h-5 w-5" />, path: "/student/attendance" },
+  ];
+
   return (
-    <div className="min-h-screen bg-background p-4 md:p-8">
+    <div className="min-h-screen bg-background p-4 md:p-8 pb-20">
       <header className="mb-8">
         <div className="flex items-center justify-between">
           <div>
@@ -186,188 +208,227 @@ export default function StudentDashboard() {
         </div>
       </header>
 
-      <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="w-full justify-start">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="history">Attendance History</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="overview" className="space-y-4">
-          {/* Active Session Card */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle>Active Session</CardTitle>
-              <CardDescription>Current ongoing session information</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {activeSession ? (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">{activeSession.name}</h3>
-                    <Badge variant={activeSession.is_active ? "default" : "secondary"}>
-                      {activeSession.is_active ? "Active" : "Completed"}
-                    </Badge>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Calendar className="h-4 w-4" />
-                      <span>{formatDate(activeSession.date)}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      <span>{formatTime(activeSession.time)} ({activeSession.duration} mins)</span>
-                    </div>
-                  </div>
-                  
-                  {activeSession.is_active && (
-                    <div className="mt-4 flex items-center justify-between">
-                      <div className="text-sm">
-                        <span className="font-medium">Time remaining:</span>{" "}
-                        <span className="text-muted-foreground">{getTimeRemaining(activeSession.expires_at)}</span>
-                      </div>
-                      <div className="text-sm">
-                        <span className="font-medium">Attendance:</span>{" "}
-                        <span className="text-muted-foreground">{activeSession.attendance}/{activeSession.total}</span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {hasCheckedIn() ? (
-                    <div className="mt-4 rounded-md bg-green-50 dark:bg-green-950 p-3 flex items-center text-green-700 dark:text-green-300">
-                      <Check className="h-5 w-5 mr-2" />
-                      <div>
-                        <p className="font-semibold">Attendance Recorded</p>
-                        <p className="text-sm text-green-600 dark:text-green-400">
-                          {activeSession.check_in_time ? `Checked in at ${formatTime(activeSession.check_in_time)}` : "Successfully marked as present"}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <SimpleLink to="/student/scan" className="w-full">
-                      <Button className="w-full mt-4">
-                        Scan QR to Record Attendance
-                      </Button>
-                    </SimpleLink>
-                  )}
-                </div>
-              ) : error ? (
-                <Alert variant="destructive">
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              ) : (
-                <div className="space-y-4">
-                  <Skeleton className="h-8 w-3/4" />
-                  <div className="grid grid-cols-2 gap-4">
-                    <Skeleton className="h-5 w-full" />
-                    <Skeleton className="h-5 w-full" />
-                  </div>
-                  <Skeleton className="h-9 w-full mt-4" />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Recent Attendance */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle>Recent Attendance</CardTitle>
-              <CardDescription>Your latest attendance records</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <Skeleton className="h-5 w-2/3" />
-                      <Skeleton className="h-5 w-1/4" />
-                    </div>
-                  ))}
-                </div>
-              ) : attendanceRecords.length > 0 ? (
-                <div className="space-y-4">
-                  {attendanceRecords.slice(0, 3).map((record) => (
-                    <div key={record.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
-                      <div>
-                        <p className="font-medium">{record.sessionName}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {formatDate(record.date)} at {formatTime(record.checkInTime || record.time)}
-                        </p>
-                      </div>
-                      <Badge variant={record.status === "present" ? "success" : "secondary"}>
-                        {record.status}
+      {activeSection === "home" && (
+        <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="w-full justify-start">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="history">Attendance History</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="overview" className="space-y-4">
+            {/* Active Session Card */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle>Active Session</CardTitle>
+                <CardDescription>Current ongoing session information</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {activeSession ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold">{activeSession.name}</h3>
+                      <Badge variant={activeSession.is_active ? "default" : "secondary"}>
+                        {activeSession.is_active ? "Active" : "Completed"}
                       </Badge>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-center py-4">No recent attendance records</p>
-              )}
-            </CardContent>
-            
-            {attendanceRecords.length > 3 && (
-              <CardFooter className="border-t pt-4 flex justify-center">
-                <Button variant="outline" size="sm" onClick={() => setActiveTab("history")}>
-                  View All Records
-                </Button>
-              </CardFooter>
-            )}
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="history">
-          <Card>
-            <CardHeader>
-              <CardTitle>Attendance History</CardTitle>
-              <CardDescription>Complete record of your attendance</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="space-y-6">
-                  <Skeleton className="h-8 w-full" />
-                  <Skeleton className="h-20 w-full" />
-                  <Skeleton className="h-20 w-full" />
-                </div>
-              ) : attendanceRecords.length > 0 ? (
-                <Table>
-                  <TableCaption>A list of your attendance records</TableCaption>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Session</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Check-in Time</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {attendanceRecords.map((record) => (
-                      <TableRow key={record.id}>
-                        <TableCell className="font-medium">{record.sessionName}</TableCell>
-                        <TableCell>{formatDate(record.date)}</TableCell>
-                        <TableCell>{formatTime(record.checkInTime || record.time)}</TableCell>
-                        <TableCell>
-                          <Badge variant={record.status === "present" ? "success" : "secondary"}>
-                            {record.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Calendar className="h-4 w-4" />
+                        <span>{formatDate(activeSession.date)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Clock className="h-4 w-4" />
+                        <span>{formatTime(activeSession.time)} ({activeSession.duration} mins)</span>
+                      </div>
+                    </div>
+                    
+                    {activeSession.is_active && (
+                      <div className="mt-4 flex items-center justify-between">
+                        <div className="text-sm">
+                          <span className="font-medium">Time remaining:</span>{" "}
+                          <span className="text-muted-foreground">{getTimeRemaining(activeSession.expires_at)}</span>
+                        </div>
+                        <div className="text-sm">
+                          <span className="font-medium">Attendance:</span>{" "}
+                          <span className="text-muted-foreground">{activeSession.attendance}/{activeSession.total}</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {hasCheckedIn() ? (
+                      <div className="mt-4 rounded-md bg-green-50 dark:bg-green-950 p-3 flex items-center text-green-700 dark:text-green-300">
+                        <Check className="h-5 w-5 mr-2" />
+                        <div>
+                          <p className="font-semibold">Attendance Recorded</p>
+                          <p className="text-sm text-green-600 dark:text-green-400">
+                            {activeSession.check_in_time ? `Checked in at ${formatTime(activeSession.check_in_time)}` : "Successfully marked as present"}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <SimpleLink to="/student/scan" className="w-full">
+                        <Button className="w-full mt-4">
+                          Scan QR to Record Attendance
+                        </Button>
+                      </SimpleLink>
+                    )}
+                  </div>
+                ) : error ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Error</AlertTitle>
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="space-y-4">
+                    <Skeleton className="h-8 w-3/4" />
+                    <div className="grid grid-cols-2 gap-4">
+                      <Skeleton className="h-5 w-full" />
+                      <Skeleton className="h-5 w-full" />
+                    </div>
+                    <Skeleton className="h-9 w-full mt-4" />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Recent Attendance */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle>Recent Attendance</CardTitle>
+                <CardDescription>Your latest attendance records</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="space-y-4">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <Skeleton className="h-5 w-2/3" />
+                        <Skeleton className="h-5 w-1/4" />
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <div className="text-center py-8">
-                  <CalendarCheck className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium">No attendance records found</h3>
-                  <p className="text-muted-foreground mt-1">
-                    Your attendance history will appear here once you've checked into sessions.
-                  </p>
-                </div>
+                  </div>
+                ) : attendanceRecords.length > 0 ? (
+                  <div className="space-y-4">
+                    {attendanceRecords.slice(0, 3).map((record) => (
+                      <div key={record.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
+                        <div>
+                          <p className="font-medium">{record.sessionName}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {formatDate(record.date)} at {formatTime(record.checkInTime || record.time)}
+                          </p>
+                        </div>
+                        <Badge variant={record.status === "present" ? "success" : "secondary"}>
+                          {record.status}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-center py-4">No recent attendance records</p>
+                )}
+              </CardContent>
+              
+              {attendanceRecords.length > 3 && (
+                <CardFooter className="border-t pt-4 flex justify-center">
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab("history")}>
+                    View All Records
+                  </Button>
+                </CardFooter>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="history">
+            <Card>
+              <CardHeader>
+                <CardTitle>Attendance History</CardTitle>
+                <CardDescription>Complete record of your attendance</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="space-y-6">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-20 w-full" />
+                    <Skeleton className="h-20 w-full" />
+                  </div>
+                ) : attendanceRecords.length > 0 ? (
+                  <Table>
+                    <TableCaption>A list of your attendance records</TableCaption>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Session</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Check-in Time</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {attendanceRecords.map((record) => (
+                        <TableRow key={record.id}>
+                          <TableCell className="font-medium">{record.sessionName}</TableCell>
+                          <TableCell>{formatDate(record.date)}</TableCell>
+                          <TableCell>{formatTime(record.checkInTime || record.time)}</TableCell>
+                          <TableCell>
+                            <Badge variant={record.status === "present" ? "success" : "secondary"}>
+                              {record.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="text-center py-8">
+                    <CalendarCheck className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-medium">No attendance records found</h3>
+                    <p className="text-muted-foreground mt-1">
+                      Your attendance history will appear here once you've checked into sessions.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      )}
+
+      {/* Bottom Navigation Bar */}
+      <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-background/90 backdrop-blur-md z-50">
+        <div className="container mx-auto max-w-lg">
+          <div className="grid grid-cols-3 h-16">
+            {navigationItems.map((item) => (
+              <SimpleLink to={item.path} key={item.id} className="flex flex-col items-center justify-center">
+                <button
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-1 text-sm w-full h-full",
+                    activeSection === item.id 
+                      ? "text-primary" 
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <div className={cn(
+                    "transition-all duration-200",
+                    activeSection === item.id && "scale-110"
+                  )}>
+                    {item.icon}
+                  </div>
+                  <span className="text-xs font-medium">{item.label}</span>
+                  
+                  {/* Active indicator */}
+                  {activeSection === item.id && (
+                    <motion.div 
+                      layoutId="activeTabIndicator"
+                      className="absolute bottom-0 h-1 w-12 rounded-t-full bg-primary"
+                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    />
+                  )}
+                </button>
+              </SimpleLink>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

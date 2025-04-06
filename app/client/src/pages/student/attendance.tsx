@@ -1,187 +1,221 @@
 import { useState, useEffect } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { useQuery } from "@tanstack/react-query";
-import { History, Download } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { createClient } from '@supabase/supabase-js';
+import { SimpleLink } from "@/components/ui/simple-link";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { CalendarCheck, ArrowLeft } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-// Initialize Supabase client
-const supabaseUrl = 'https://qwavakkbfpdgkvtctogx.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXZha2tiZnBkZ2t2dGN0b2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3MTE4MjYsImV4cCI6MjA1ODI4NzgyNn0.Kdwo9ICmcsHPhK_On6G73ccSPkcEqzAg2BtvblhD8co';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Type for the attendance record
+interface AttendanceRecord {
+  id: string;
+  sessionId: string;
+  sessionName: string;
+  date: string;
+  time: string;
+  status: string;
+  checkInTime: string;
+}
 
 export default function StudentAttendance() {
-  const { user, isOfflineMode } = useAuth();
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("30days");
-  const [attendanceData, setAttendanceData] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { user } = useAuth();
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Fetch student's attendance records with session info
+  // Fetch attendance records
   useEffect(() => {
-    const fetchAttendanceWithSessionNames = async () => {
-      if (!user) return;
-      
+    const fetchAttendanceRecords = async () => {
       try {
-        setIsLoading(true);
-        
-        // Fetch attendance records for the current user
-        const { data: attendanceRecords, error } = await supabase
-          .from('attendance')
-          .select(`
-            id,
-            user_id,
-            session_id,
-            check_in_time,
-            date,
-            status,
-            name,
-            session_name
-          `)
-          .eq('user_id', user.username)
-          .order('check_in_time', { ascending: false });
-          
-        if (error) {
-          console.error('Error fetching attendance records:', error);
-          return;
-        }
-        
-        // Get unique session IDs to fetch session details
-        const sessionIds = [...new Set(attendanceRecords.map(record => record.session_id))];
-        
-        // Fetch session details for all session IDs
-        const { data: sessions, error: sessionsError } = await supabase
-          .from('sessions')
-          .select('id, name, date, time')
-          .in('id', sessionIds);
-          
-        if (sessionsError) {
-          console.error('Error fetching session details:', sessionsError);
-          return;
-        }
-        
-        // Create a session lookup map
-        const sessionMap = {};
-        sessions.forEach(session => {
-          sessionMap[session.id] = session;
+        setLoading(true);
+        const response = await fetch("/api/attendance/me", {
+          credentials: "include",
         });
         
-        // Join attendance records with session details
-        const enrichedAttendance = attendanceRecords.map(record => ({
-          ...record,
-          session: sessionMap[record.session_id] || { name: "Unknown Session" }
-        }));
+        if (!response.ok) {
+          throw new Error(`Error fetching attendance records: ${response.status}`);
+        }
         
-        setAttendanceData(enrichedAttendance);
+        const data = await response.json();
+        console.log("Attendance records:", data);
+        setAttendanceRecords(data);
       } catch (err) {
-        console.error('Error processing attendance data:', err);
+        console.error("Failed to fetch attendance records:", err);
+        setError("Failed to load attendance history");
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     };
     
-    fetchAttendanceWithSessionNames();
-  }, [user]);
+    fetchAttendanceRecords();
+  }, []);
 
-  const handleDownloadReport = () => {
-    alert("This would download an attendance report Excel file in a real application.");
+  // Format date
+  const formatDate = (dateString: string) => {
+    const options: Intl.DateTimeFormatOptions = { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    };
+    return new Date(dateString).toLocaleDateString(undefined, options);
   };
 
+  // Format time
+  const formatTime = (timeString: string) => {
+    // If timeString is already in HH:MM format, convert to 12-hour format
+    if (timeString.match(/^\d{1,2}:\d{2}$/)) {
+      const [hours, minutes] = timeString.split(':').map(Number);
+      const period = hours >= 12 ? 'PM' : 'AM';
+      const formattedHours = hours % 12 || 12;
+      return `${formattedHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+    }
+    
+    // If it's a full ISO date
+    try {
+      const date = new Date(timeString);
+      return date.toLocaleTimeString(undefined, { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true 
+      });
+    } catch (e) {
+      return timeString; // Return as is if parsing fails
+    }
+  };
+
+  // Calculate attendance stats
+  const calculateStats = () => {
+    if (attendanceRecords.length === 0) return { total: 0, present: 0, percentage: 0 };
+    
+    const present = attendanceRecords.filter(record => record.status === 'present').length;
+    const total = attendanceRecords.length;
+    const percentage = Math.round((present / total) * 100);
+    
+    return { total, present, percentage };
+  };
+
+  const stats = calculateStats();
+
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
-      {isOfflineMode && (
-        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded relative" role="alert">
-          <strong className="font-bold">Offline Mode:</strong>
-          <span className="block sm:inline"> Limited functionality available. Some data may not be current.</span>
-        </div>
-      )}
-      
-      <Card>
-        <CardContent className="pt-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center">
-            <History className="mr-2 h-5 w-5 text-primary" />
-            Attendance History
-          </h3>
-          
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 space-y-2 md:space-y-0">
-            <div className="flex items-center space-x-2">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-36">
-                  <SelectValue placeholder="All Sessions" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Sessions</SelectItem>
-                  <SelectItem value="present">Present Only</SelectItem>
-                  <SelectItem value="absent">Absent Only</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={dateFilter} onValueChange={setDateFilter}>
-                <SelectTrigger className="w-36">
-                  <SelectValue placeholder="Last 30 days" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="30days">Last 30 days</SelectItem>
-                  <SelectItem value="3months">Last 3 months</SelectItem>
-                  <SelectItem value="all">All time</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button variant="outline" onClick={handleDownloadReport} className="flex items-center">
-              <Download className="h-4 w-4 mr-1" /> Download Report
+    <div className="min-h-screen bg-background p-4 md:p-8">
+      <header className="mb-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Attendance History</h1>
+            <p className="text-muted-foreground mt-1">
+              Complete record of your attendance
+            </p>
+          </div>
+          <SimpleLink to="/student" className="hidden md:block">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-5 w-5" />
             </Button>
-          </div>
-          
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Session</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Date</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Check-in</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-3 text-sm text-center">Loading attendance data...</td>
-                  </tr>
-                ) : attendanceData.length > 0 ? (
-                  attendanceData.map((record: any) => (
-                    <tr key={record.id} className="border-b border-border">
-                      <td className="px-4 py-3 text-sm">
-                        {record.session?.name || record.session_name || "Unknown Session"}
-                      </td>
-                      <td className="px-4 py-3 text-sm">{record.date || new Date(record.check_in_time || Date.now()).toLocaleDateString()}</td>
-                      <td className="px-4 py-3 text-sm">
-                        {record.status === "present" ? (
-                          <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                            Present
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
-                            Absent
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        {record.check_in_time ? new Date(record.check_in_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-'}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-3 text-sm text-center text-muted-foreground">
-                      No attendance records found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          </SimpleLink>
+        </div>
+      </header>
+
+      {/* Attendance Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Sessions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {loading ? <Skeleton className="h-8 w-12" /> : stats.total}
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Present</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {loading ? <Skeleton className="h-8 w-12" /> : stats.present}
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Attendance Rate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {loading ? <Skeleton className="h-8 w-16" /> : `${stats.percentage}%`}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Attendance Records */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Attendance Records</CardTitle>
+          <CardDescription>History of your attendance for all sessions</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-6">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+            </div>
+          ) : error ? (
+            <Alert variant="destructive">
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : attendanceRecords.length > 0 ? (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableCaption>A list of your attendance records</TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Session</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Check-in Time</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {attendanceRecords.map((record) => (
+                    <TableRow key={record.id}>
+                      <TableCell className="font-medium">{record.sessionName}</TableCell>
+                      <TableCell>{formatDate(record.date)}</TableCell>
+                      <TableCell>{formatTime(record.checkInTime || record.time)}</TableCell>
+                      <TableCell>
+                        <Badge variant={record.status === "present" ? "success" : "secondary"}>
+                          {record.status}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <CalendarCheck className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <h3 className="text-lg font-medium">No attendance records found</h3>
+              <p className="text-muted-foreground mt-1">
+                Your attendance history will appear here once you've checked into sessions.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

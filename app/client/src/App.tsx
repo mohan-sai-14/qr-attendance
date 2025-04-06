@@ -9,6 +9,8 @@ import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import AdminDashboard from "@/pages/admin-dashboard";
 import StudentDashboard from "@/pages/student-dashboard";
+import StudentScanner from "@/pages/student/scanner";
+import StudentAttendance from "@/pages/student/attendance";
 import { Bot, Loader2 } from "lucide-react";
 
 // Simple custom hook for hash-based routing
@@ -134,6 +136,10 @@ function RouterContent() {
   // For protected routes, enforce user authentication
   if (currentRoute.startsWith("/admin")) {
     return user && user.role === "admin" ? <AdminDashboard /> : <Login />;
+  } else if (currentRoute.startsWith("/student/scan")) {
+    return user && user.role === "student" ? <StudentScanner autoStart={true} /> : <Login />;
+  } else if (currentRoute.startsWith("/student/attendance")) {
+    return user && user.role === "student" ? <StudentAttendance /> : <Login />;
   } else if (currentRoute.startsWith("/student")) {
     return user && user.role === "student" ? <StudentDashboard /> : <Login />;
   } else {

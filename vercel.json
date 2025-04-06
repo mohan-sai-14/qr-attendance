@@ -1,13 +1,10 @@
 {
   "version": 2,
+  "framework": "vite",
   "buildCommand": "cd app/client && npm install && npm run build",
   "outputDirectory": "app/client/dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.ts" }
-  ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/index.ts" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/app/client/dist/index.html", "status": 200 }
+    { "source": "/api/(.*)", "destination": "/api/index.ts" },
+    { "source": "/(.*)", "destination": "/app/client/dist/index.html" }
   ]
 } 

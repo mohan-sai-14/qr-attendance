@@ -68,20 +68,20 @@ const AttendanceCodeInput: React.FC<AttendanceCodeInputProps> = ({
         
         // Insert attendance record directly to Supabase
         const { data: insertData, error: insertError } = await supabase
-          .from('attendance')
-          .insert([{
+        .from('attendance')
+        .insert([{
             session_id: codeToUse,
             user_id: user?.id || 3,
             username: user?.username || 'student',
             name: user?.name || 'Student',
-            check_in_time: localTimestamp,
+          check_in_time: localTimestamp,
             date: formattedDate,
-            status: 'present',
+          status: 'present',
             session_name: `Session ${codeToUse}`
-          }])
-          .select();
-          
-        if (insertError) {
+        }])
+        .select();
+
+      if (insertError) {
           console.error('Direct Supabase error:', insertError);
           // Continue to API fallback
         } else {
@@ -127,7 +127,7 @@ const AttendanceCodeInput: React.FC<AttendanceCodeInputProps> = ({
         onError(result.error || result.message || "Failed to record attendance");
         return;
       }
-      
+
       console.log("Attendance recorded successfully with code:", result);
       
       // Use baseUrl for direct navigation rather than relying on redirectUrl

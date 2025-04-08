@@ -7,8 +7,8 @@
       "maxDuration": 10
     }
   },
-  "buildCommand": "cd app/client && npm install && npm run build",
-  "outputDirectory": "app/client/dist",
+  "buildCommand": "npm install && npm run build",
+  "outputDirectory": "dist",
   "routes": [
     { 
       "src": "/api/(.*)", 

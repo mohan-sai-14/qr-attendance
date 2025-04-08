@@ -137,8 +137,8 @@ export default function StudentAttendance() {
             </div>
           </CardContent>
         </Card>
-        
-        <Card>
+      
+      <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Present</CardTitle>
           </CardHeader>
@@ -159,8 +159,8 @@ export default function StudentAttendance() {
             </div>
           </CardContent>
         </Card>
-      </div>
-
+          </div>
+          
       {/* Attendance Records */}
       <Card>
         <CardHeader>
@@ -180,7 +180,7 @@ export default function StudentAttendance() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : attendanceRecords.length > 0 ? (
-            <div className="overflow-x-auto">
+          <div className="overflow-x-auto">
               <Table>
                 <TableCaption>A list of your attendance records</TableCaption>
                 <TableHeader>
@@ -200,7 +200,7 @@ export default function StudentAttendance() {
                       <TableCell>
                         <Badge variant={record.status === "present" ? "success" : "secondary"}>
                           {record.status}
-                        </Badge>
+                          </Badge>
                       </TableCell>
                     </TableRow>
                   ))}

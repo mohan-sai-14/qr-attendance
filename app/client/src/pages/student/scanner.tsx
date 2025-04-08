@@ -4,7 +4,7 @@ import { SimpleLink } from "@/components/ui/simple-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, ZoomIn, ZoomOut, Camera, CheckCircle2, FlipCamera } from 'lucide-react';
+import { ArrowLeft, ZoomIn, ZoomOut, Camera, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Loader2 } from "lucide-react";
 import jsQR from 'jsqr';
 
@@ -314,7 +314,7 @@ export default function StudentScanner() {
                       className="rounded-full bg-background/80 backdrop-blur-sm"
                       onClick={switchCamera}
                     >
-                      <FlipCamera className="h-4 w-4" />
+                      <RefreshCw className="h-4 w-4" />
                     </Button>
                   )}
                 </div>

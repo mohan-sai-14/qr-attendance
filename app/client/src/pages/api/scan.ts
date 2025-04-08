@@ -1,16 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
-import { getUser } from '@/lib/auth-helpers';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+
+export const runtime = 'edge';
 
 // Handle POST request for scanning QR code
 export async function POST(req: NextRequest) {
   try {
-    // Verify authentication
-    const user = await getUser();
+    // Create supabase client
+    const supabase = createClientComponentClient();
     
-    if (!user) {
+    // Get current user session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
       return NextResponse.json(
         { error: 'Unauthorized', message: 'You must be logged in to record attendance' },
+        { status: 401 }
+      );
+    }
+    
+    // Get user from database
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', session.user.id)
+      .single();
+      
+    if (userError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized', message: 'User profile not found' },
         { status: 401 }
       );
     }
@@ -28,7 +45,7 @@ export async function POST(req: NextRequest) {
     }
     
     // Check if the session exists and is active
-    const { data: session, error: sessionError } = await supabase
+    const { data: sessionData, error: sessionError } = await supabase
       .from('sessions')
       .select('*')
       .eq('id', sessionId)
@@ -42,14 +59,14 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    if (!session) {
+    if (!sessionData) {
       return NextResponse.json(
         { error: 'Not Found', message: 'Session not found' },
         { status: 404 }
       );
     }
     
-    if (session.status !== 'active') {
+    if (sessionData.status !== 'active') {
       return NextResponse.json(
         { 
           error: 'Invalid Session', 

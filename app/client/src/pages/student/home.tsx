@@ -9,12 +9,45 @@ import { format } from "date-fns";
 import { getActiveSession } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
+import { SimpleLink } from "@/components/ui/simple-link";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ExternalLink, Clock } from "lucide-react";
+import { CalendarCheck } from "lucide-react";
+
+// Type for the attendance record
+interface AttendanceRecord {
+  id: string;
+  sessionId: string;
+  sessionName: string;
+  date: string;
+  time: string;
+  status: string;
+  checkInTime: string;
+}
+
+// Type for the active session
+interface ActiveSession {
+  id: string;
+  name: string;
+  date: string;
+  time: string;
+  duration: number;
+  status: string;
+  attendance: number;
+  total: number;
+  is_active: boolean;
+  expires_at: string;
+  checked_in: boolean;
+  check_in_time?: string;
+}
 
 export default function StudentHome() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [currentDate, setCurrentDate] = useState<string>("");
-  const [activeSession, setActiveSession] = useState<any>(null);
+  const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,60 +55,120 @@ export default function StudentHome() {
     setCurrentDate(format(new Date(), "EEEE, MMMM d, yyyy"));
   }, []);
 
-  // Direct fetch for active session
+  // Fetch active session
   useEffect(() => {
     const fetchActiveSession = async () => {
-      setLoading(true);
       try {
-        const data = await getActiveSession();
-        console.log("Active session fetched:", data);
+        const response = await fetch("/api/sessions/active", {
+          credentials: "include",
+        });
         
-        // Process and format the session data
-        if (data) {
-          // Format the data for display
-          const formattedSession = {
-            ...data,
-            time: data.time || (data.created_at ? new Date(data.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''),
-            date: data.date || (data.created_at ? new Date(data.created_at).toLocaleDateString() : ''),
-            duration: data.duration || '60'
-          };
-          setActiveSession(formattedSession);
-        } else {
-          setActiveSession(null);
+        if (!response.ok) {
+          throw new Error(`Error fetching active session: ${response.status}`);
         }
         
-        setError(null);
-      } catch (err: any) {
-        console.error("Error fetching active session:", err);
-        setError(err.message || "Failed to fetch active session");
-        setActiveSession(null);
+        const data = await response.json();
+        console.log("Active session data:", data);
+        setActiveSession(data);
+      } catch (err) {
+        console.error("Failed to fetch active session:", err);
+        setError("Failed to load active session information");
+      }
+    };
+    
+    fetchActiveSession();
+  }, []);
+
+  // Fetch attendance records
+  useEffect(() => {
+    const fetchAttendanceRecords = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch("/api/attendance/me", {
+          credentials: "include",
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Error fetching attendance records: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log("Attendance records:", data);
+        setAttendanceRecords(data);
+      } catch (err) {
+        console.error("Failed to fetch attendance records:", err);
+        setError("Failed to load attendance history");
       } finally {
         setLoading(false);
       }
     };
-
-    fetchActiveSession();
     
-    // Set up polling for active session every 30 seconds
-    const intervalId = setInterval(fetchActiveSession, 30000);
-    
-    return () => clearInterval(intervalId);
+    fetchAttendanceRecords();
   }, []);
 
-  // Fetch student's attendance records
-  const { data: attendanceRecords } = useQuery({
-    queryKey: ['/api/attendance/me'],
-  });
+  // Format date
+  const formatDate = (dateString: string) => {
+    const options: Intl.DateTimeFormatOptions = { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    };
+    return new Date(dateString).toLocaleDateString(undefined, options);
+  };
 
-  // Calculate attendance rate
-  const totalSessions = attendanceRecords?.length || 0;
-  const presentSessions = attendanceRecords?.filter((record: any) => record.status === "present")?.length || 0;
-  const attendanceRate = totalSessions > 0 ? Math.round((presentSessions / totalSessions) * 100) : 0;
+  // Format time
+  const formatTime = (timeString: string) => {
+    // If timeString is already in HH:MM format, convert to 12-hour format
+    if (timeString.match(/^\d{1,2}:\d{2}$/)) {
+      const [hours, minutes] = timeString.split(':').map(Number);
+      const period = hours >= 12 ? 'PM' : 'AM';
+      const formattedHours = hours % 12 || 12;
+      return `${formattedHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+    }
+    
+    // If it's a full ISO date
+    try {
+      const date = new Date(timeString);
+      return date.toLocaleTimeString(undefined, { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true 
+      });
+    } catch (e) {
+      return timeString; // Return as is if parsing fails
+    }
+  };
 
-  // Check if student is checked in for the active session
-  const isCheckedIn = attendanceRecords?.some(
-    (record: any) => record.sessionId === activeSession?.id
-  );
+  // Calculate time remaining for active session
+  const getTimeRemaining = (expiresAt: string) => {
+    const now = new Date();
+    const expiration = new Date(expiresAt);
+    const diff = expiration.getTime() - now.getTime();
+    
+    if (diff <= 0) return "Expired";
+    
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    
+    if (hours > 0) {
+      return `${hours}h ${remainingMinutes}m`;
+    }
+    return `${minutes}m`;
+  };
+
+  // Check if user has already checked in to the active session
+  const hasCheckedIn = () => {
+    if (!activeSession) return false;
+    
+    // If the active session already indicates checked_in is true
+    if (activeSession.checked_in) return true;
+    
+    // Also check attendance records manually
+    return attendanceRecords.some(record => 
+      record.sessionId === activeSession.id
+    );
+  };
 
   // Get upcoming sessions (using next 3 sessions from the sessions list)
   const { data: allSessions } = useQuery({
@@ -153,27 +246,49 @@ export default function StudentHome() {
               </h3>
               {activeSession ? (
                 <div className="h-full flex flex-col">
-                  {isCheckedIn ? (
-                    <div className="bg-green-500/10 border border-green-500/20 p-4 rounded-md mb-4 flex items-start">
-                      <Check className="h-5 w-5 mr-2 text-green-500" />
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-lg font-semibold">{activeSession.name}</h4>
+                    <Badge variant={activeSession.is_active ? "default" : "secondary"}>
+                      {activeSession.is_active ? "Active" : "Completed"}
+                    </Badge>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center gap-2 text-sm text-foreground/70">
+                      <Calendar className="h-4 w-4" />
+                      <span>{formatDate(activeSession.date)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-foreground/70">
+                      <Clock className="h-4 w-4" />
+                      <span>{formatTime(activeSession.time)} ({activeSession.duration} mins)</span>
+                    </div>
+                  </div>
+                  
+                  {activeSession.is_active && (
+                    <div className="mt-4 flex items-center justify-between">
+                      <div className="text-sm">
+                        <span className="font-medium">Time remaining:</span>{" "}
+                        <span className="text-foreground/70">{getTimeRemaining(activeSession.expires_at)}</span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="font-medium">Attendance:</span>{" "}
+                        <span className="text-foreground/70">{activeSession.attendance}/{activeSession.total}</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {hasCheckedIn() ? (
+                    <div className="mt-4 rounded-md bg-green-500/10 border border-green-500/20 p-4 flex items-center text-green-500">
+                      <Check className="h-5 w-5 mr-2" />
                       <div>
-                        <p className="font-medium text-green-500">You are checked in!</p>
-                        <p className="text-sm text-foreground/70">
-                          {activeSession.name} • {activeSession.time}
+                        <p className="font-semibold">Attendance Recorded</p>
+                        <p className="text-sm text-green-500">
+                          {activeSession.check_in_time ? `Checked in at ${formatTime(activeSession.check_in_time)}` : "Successfully marked as present"}
                         </p>
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-accent/10 border border-accent/20 p-4 rounded-md mb-4">
-                      <div className="flex items-start mb-3">
-                        <AlertCircle className="h-5 w-5 mr-2 text-accent" />
-                        <div>
-                          <p className="font-medium text-accent">Attendance needed!</p>
-                          <p className="text-sm text-foreground/70">
-                            Mark your attendance for the active session.
-                          </p>
-                        </div>
-                      </div>
+                    <div className="mt-4">
                       <Button 
                         className="w-full bg-gradient-to-r from-neon-blue to-neon-purple hover:from-neon-purple hover:to-neon-blue text-white transition-all duration-300 transform hover:scale-[1.02]"
                         onClick={goToScanner}
@@ -183,23 +298,6 @@ export default function StudentHome() {
                       </Button>
                     </div>
                   )}
-                  <div className="p-4 rounded-md bg-background/50 border border-border/30">
-                    <p className="font-medium text-lg">{activeSession.name}</p>
-                    <div className="grid grid-cols-3 gap-2 mt-3">
-                      <div className="text-center p-2 rounded-md bg-background/80">
-                        <p className="text-xs text-foreground/50">Date</p>
-                        <p className="text-sm font-medium">{activeSession.date}</p>
-                      </div>
-                      <div className="text-center p-2 rounded-md bg-background/80">
-                        <p className="text-xs text-foreground/50">Time</p>
-                        <p className="text-sm font-medium">{activeSession.time}</p>
-                      </div>
-                      <div className="text-center p-2 rounded-md bg-background/80">
-                        <p className="text-xs text-foreground/50">Duration</p>
-                        <p className="text-sm font-medium">{activeSession.duration} min</p>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center py-8 px-4 text-center">
@@ -230,15 +328,15 @@ export default function StudentHome() {
                 <div className="grid grid-cols-2 gap-4 mb-6">
                   <div className="bg-foreground/5 rounded-md p-4 text-center">
                     <p className="text-3xl font-semibold text-foreground mb-1">
-                      {totalSessions}
+                      {loading ? <Skeleton className="h-8 w-12" /> : attendanceRecords.length}
                     </p>
                     <p className="text-sm text-foreground/60">Total Sessions</p>
                   </div>
                   <div className="bg-foreground/5 rounded-md p-4 text-center">
                     <p className="text-3xl font-semibold text-accent mb-1">
-                      {attendanceRate}%
+                      {loading ? <Skeleton className="h-8 w-12" /> : attendanceRecords.filter(r => r.status === "present").length}
                     </p>
-                    <p className="text-sm text-foreground/60">Attendance Rate</p>
+                    <p className="text-sm text-foreground/60">Present</p>
                   </div>
                 </div>
                 
@@ -246,12 +344,12 @@ export default function StudentHome() {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Present</span>
-                      <span className="text-sm font-medium text-foreground/70">{presentSessions} sessions</span>
+                      <span className="text-sm font-medium text-foreground/70">{attendanceRecords.filter(r => r.status === "present").length} sessions</span>
                     </div>
                     <div className="w-full bg-foreground/10 rounded-full h-2.5 overflow-hidden">
                       <motion.div 
                         initial={{ width: 0 }}
-                        animate={{ width: `${attendanceRate}%` }}
+                        animate={{ width: `${attendanceRecords.filter(r => r.status === "present").length > 0 ? Math.round((attendanceRecords.filter(r => r.status === "present").length / attendanceRecords.length) * 100) : 0}%` }}
                         transition={{ duration: 1, ease: "easeOut" }}
                         className="bg-gradient-to-r from-neon-green to-neon-blue h-full rounded-full" 
                       />
@@ -261,12 +359,12 @@ export default function StudentHome() {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Absent</span>
-                      <span className="text-sm font-medium text-foreground/70">{totalSessions - presentSessions} sessions</span>
+                      <span className="text-sm font-medium text-foreground/70">{attendanceRecords.length - attendanceRecords.filter(r => r.status === "present").length} sessions</span>
                     </div>
                     <div className="w-full bg-foreground/10 rounded-full h-2.5 overflow-hidden">
                       <motion.div 
                         initial={{ width: 0 }}
-                        animate={{ width: `${totalSessions > 0 ? 100 - attendanceRate : 0}%` }}
+                        animate={{ width: `${attendanceRecords.length > 0 ? 100 - Math.round((attendanceRecords.filter(r => r.status === "present").length / attendanceRecords.length) * 100) : 0}%` }}
                         transition={{ duration: 1, ease: "easeOut" }}
                         className="bg-gradient-to-r from-neon-pink to-red-500 h-full rounded-full" 
                       />
@@ -346,6 +444,59 @@ export default function StudentHome() {
               </div>
             )}
           </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Recent Attendance */}
+      <motion.div variants={itemVariants}>
+        <Card className="border-border/30">
+          <CardContent className="pt-6">
+            <h3 className="text-lg font-display font-semibold mb-4 flex items-center text-foreground/90">
+              <Calendar className="mr-2 h-5 w-5 text-accent" />
+              Recent Attendance
+            </h3>
+            {loading ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <Skeleton className="h-5 w-2/3" />
+                    <Skeleton className="h-5 w-1/4" />
+                  </div>
+                ))}
+              </div>
+            ) : attendanceRecords.length > 0 ? (
+              <div className="space-y-4">
+                {attendanceRecords.slice(0, 3).map((record) => (
+                  <div key={record.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
+                    <div>
+                      <p className="font-medium">{record.sessionName}</p>
+                      <p className="text-sm text-foreground/70">
+                        {formatDate(record.date)} at {formatTime(record.checkInTime || record.time)}
+                      </p>
+                    </div>
+                    <Badge variant={record.status === "present" ? "success" : "secondary"}>
+                      {record.status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <CalendarCheck className="h-10 w-10 mx-auto text-foreground/20 mb-2" />
+                <p className="text-foreground/50">No recent attendance records</p>
+              </div>
+            )}
+          </CardContent>
+          
+          {attendanceRecords.length > 3 && (
+            <CardFooter className="border-t pt-4 flex justify-center">
+              <SimpleLink to="/student/attendance">
+                <Button variant="outline" size="sm">
+                  View All Records
+                </Button>
+              </SimpleLink>
+            </CardFooter>
+          )}
         </Card>
       </motion.div>
     </motion.div>

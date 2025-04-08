@@ -1,29 +1,33 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { User, CalendarDays, BarChart, Check, Calendar, Info, AlertCircle, QrCode } from "lucide-react";
-import { format } from "date-fns";
+import { User, CalendarDays, BarChart, Check, Calendar, Info, AlertCircle, QrCode, Clock, Users, CheckCircle2, XCircle } from "lucide-react";
+import { format, differenceInMinutes } from "date-fns";
 import { getActiveSession } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { SimpleLink } from "@/components/ui/simple-link";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink, Clock } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { CalendarCheck } from "lucide-react";
+import { supabase } from '@/lib/supabase';
 
 // Type for the attendance record
 interface AttendanceRecord {
   id: string;
-  sessionId: string;
-  sessionName: string;
-  date: string;
-  time: string;
+  session_id: string;
+  user_id: string;
+  timestamp: string;
   status: string;
-  checkInTime: string;
+  session: {
+    name: string;
+    date: string;
+    time: string;
+  };
 }
 
 // Type for the active session
@@ -33,13 +37,7 @@ interface ActiveSession {
   date: string;
   time: string;
   duration: number;
-  status: string;
-  attendance: number;
-  total: number;
   is_active: boolean;
-  expires_at: string;
-  checked_in: boolean;
-  check_in_time?: string;
 }
 
 export default function StudentHome() {
@@ -50,61 +48,79 @@ export default function StudentHome() {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasCheckedIn, setHasCheckedIn] = useState(false);
 
   useEffect(() => {
     setCurrentDate(format(new Date(), "EEEE, MMMM d, yyyy"));
   }, []);
 
-  // Fetch active session
   useEffect(() => {
-    const fetchActiveSession = async () => {
-      try {
-        const response = await fetch("/api/sessions/active", {
-          credentials: "include",
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Error fetching active session: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        console.log("Active session data:", data);
-        setActiveSession(data);
-      } catch (err) {
-        console.error("Failed to fetch active session:", err);
-        setError("Failed to load active session information");
-      }
-    };
-    
-    fetchActiveSession();
-  }, []);
-
-  // Fetch attendance records
-  useEffect(() => {
-    const fetchAttendanceRecords = async () => {
+    async function fetchData() {
       try {
         setLoading(true);
-        const response = await fetch("/api/attendance/me", {
-          credentials: "include",
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Error fetching attendance records: ${response.status}`);
+        setError(null);
+
+        // Fetch active session
+        const { data: sessionData, error: sessionError } = await supabase
+          .from('sessions')
+          .select('*')
+          .eq('is_active', true)
+          .single();
+
+        if (sessionError && sessionError.code !== 'PGRST116') {
+          throw new Error('Failed to fetch active session');
         }
-        
-        const data = await response.json();
-        console.log("Attendance records:", data);
-        setAttendanceRecords(data);
+
+        setActiveSession(sessionData);
+
+        if (sessionData) {
+          // Check if user has already checked in for this session
+          const { data: attendanceData, error: attendanceError } = await supabase
+            .from('attendance')
+            .select('*')
+            .eq('session_id', sessionData.id)
+            .eq('user_id', user?.id)
+            .single();
+
+          if (attendanceError && attendanceError.code !== 'PGRST116') {
+            throw new Error('Failed to check attendance status');
+          }
+
+          setHasCheckedIn(!!attendanceData);
+        }
+
+        // Fetch recent attendance records
+        const { data: records, error: recordsError } = await supabase
+          .from('attendance')
+          .select(`
+            *,
+            session:sessions (
+              name,
+              date,
+              time
+            )
+          `)
+          .eq('user_id', user?.id)
+          .order('timestamp', { ascending: false })
+          .limit(5);
+
+        if (recordsError) {
+          throw new Error('Failed to fetch attendance records');
+        }
+
+        setAttendanceRecords(records || []);
       } catch (err) {
-        console.error("Failed to fetch attendance records:", err);
-        setError("Failed to load attendance history");
+        console.error('Error fetching data:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
       }
-    };
-    
-    fetchAttendanceRecords();
-  }, []);
+    }
+
+    if (user) {
+      fetchData();
+    }
+  }, [user]);
 
   // Format date
   const formatDate = (dateString: string) => {
@@ -139,35 +155,20 @@ export default function StudentHome() {
     }
   };
 
-  // Calculate time remaining for active session
-  const getTimeRemaining = (expiresAt: string) => {
+  const calculateTimeRemaining = (session: ActiveSession) => {
+    const sessionDateTime = new Date(`${session.date}T${session.time}`);
+    const endTime = new Date(sessionDateTime.getTime() + session.duration * 60000);
     const now = new Date();
-    const expiration = new Date(expiresAt);
-    const diff = expiration.getTime() - now.getTime();
     
-    if (diff <= 0) return "Expired";
+    if (now > endTime) return 'Session ended';
     
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
+    const minutesRemaining = differenceInMinutes(endTime, now);
+    const hours = Math.floor(minutesRemaining / 60);
+    const minutes = minutesRemaining % 60;
     
-    if (hours > 0) {
-      return `${hours}h ${remainingMinutes}m`;
-    }
-    return `${minutes}m`;
-  };
-
-  // Check if user has already checked in to the active session
-  const hasCheckedIn = () => {
-    if (!activeSession) return false;
-    
-    // If the active session already indicates checked_in is true
-    if (activeSession.checked_in) return true;
-    
-    // Also check attendance records manually
-    return attendanceRecords.some(record => 
-      record.sessionId === activeSession.id
-    );
+    return hours > 0 
+      ? `${hours}h ${minutes}m remaining`
+      : `${minutes}m remaining`;
   };
 
   // Get upcoming sessions (using next 3 sessions from the sessions list)
@@ -202,6 +203,25 @@ export default function StudentHome() {
       transition: { type: "spring", stiffness: 300, damping: 30 }
     }
   };
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-[200px] w-full" />
+        <Skeleton className="h-[300px] w-full" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="text-destructive">Error: {error}</div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <motion.div 
@@ -239,11 +259,10 @@ export default function StudentHome() {
         {/* Active Session */}
         <motion.div variants={itemVariants}>
           <Card className="border-border/30 h-full overflow-hidden relative">
+            <CardHeader>
+              <CardTitle>Active Session</CardTitle>
+            </CardHeader>
             <CardContent className="pt-6 h-full">
-              <h3 className="text-lg font-display font-semibold mb-4 flex items-center text-foreground/90">
-                <CalendarDays className="mr-2 h-5 w-5 text-accent" />
-                Active Session
-              </h3>
               {activeSession ? (
                 <div className="h-full flex flex-col">
                   <div className="flex items-center justify-between">
@@ -268,22 +287,22 @@ export default function StudentHome() {
                     <div className="mt-4 flex items-center justify-between">
                       <div className="text-sm">
                         <span className="font-medium">Time remaining:</span>{" "}
-                        <span className="text-foreground/70">{getTimeRemaining(activeSession.expires_at)}</span>
+                        <span className="text-foreground/70">{calculateTimeRemaining(activeSession)}</span>
                       </div>
                       <div className="text-sm">
                         <span className="font-medium">Attendance:</span>{" "}
-                        <span className="text-foreground/70">{activeSession.attendance}/{activeSession.total}</span>
+                        <span className="text-foreground/70">{hasCheckedIn ? "Checked in" : "Not checked in"}</span>
                       </div>
                     </div>
                   )}
                   
-                  {hasCheckedIn() ? (
+                  {hasCheckedIn ? (
                     <div className="mt-4 rounded-md bg-green-500/10 border border-green-500/20 p-4 flex items-center text-green-500">
                       <Check className="h-5 w-5 mr-2" />
                       <div>
                         <p className="font-semibold">Attendance Recorded</p>
                         <p className="text-sm text-green-500">
-                          {activeSession.check_in_time ? `Checked in at ${formatTime(activeSession.check_in_time)}` : "Successfully marked as present"}
+                          {activeSession.is_active ? `Checked in at ${formatTime(activeSession.time)}` : "Successfully marked as present"}
                         </p>
                       </div>
                     </div>
@@ -319,11 +338,10 @@ export default function StudentHome() {
         {/* Attendance Summary */}
         <motion.div variants={itemVariants}>
           <Card className="border-border/30 h-full">
+            <CardHeader>
+              <CardTitle>Attendance Summary</CardTitle>
+            </CardHeader>
             <CardContent className="pt-6 h-full">
-              <h3 className="text-lg font-display font-semibold mb-4 flex items-center text-foreground/90">
-                <BarChart className="mr-2 h-5 w-5 text-accent" />
-                Attendance Summary
-              </h3>
               <div className="h-full flex flex-col">
                 <div className="grid grid-cols-2 gap-4 mb-6">
                   <div className="bg-foreground/5 rounded-md p-4 text-center">
@@ -394,11 +412,10 @@ export default function StudentHome() {
       {/* Upcoming Sessions */}
       <motion.div variants={itemVariants}>
         <Card className="border-border/30">
+          <CardHeader>
+            <CardTitle>Upcoming Sessions</CardTitle>
+          </CardHeader>
           <CardContent className="pt-6">
-            <h3 className="text-lg font-display font-semibold mb-4 flex items-center text-foreground/90">
-              <Calendar className="mr-2 h-5 w-5 text-accent" />
-              Upcoming Sessions
-            </h3>
             {upcomingSessions.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
@@ -450,11 +467,10 @@ export default function StudentHome() {
       {/* Recent Attendance */}
       <motion.div variants={itemVariants}>
         <Card className="border-border/30">
+          <CardHeader>
+            <CardTitle>Recent Attendance</CardTitle>
+          </CardHeader>
           <CardContent className="pt-6">
-            <h3 className="text-lg font-display font-semibold mb-4 flex items-center text-foreground/90">
-              <Calendar className="mr-2 h-5 w-5 text-accent" />
-              Recent Attendance
-            </h3>
             {loading ? (
               <div className="space-y-4">
                 {[1, 2, 3].map((i) => (
@@ -466,24 +482,34 @@ export default function StudentHome() {
               </div>
             ) : attendanceRecords.length > 0 ? (
               <div className="space-y-4">
-                {attendanceRecords.slice(0, 3).map((record) => (
-                  <div key={record.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
+                {attendanceRecords.map((record) => (
+                  <div
+                    key={record.id}
+                    className="flex items-center justify-between p-4 border rounded-lg"
+                  >
                     <div>
-                      <p className="font-medium">{record.sessionName}</p>
-                      <p className="text-sm text-foreground/70">
-                        {formatDate(record.date)} at {formatTime(record.checkInTime || record.time)}
-                      </p>
+                      <div className="font-medium">{record.session.name}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {format(new Date(record.session.date), 'PPP')} at{' '}
+                        {format(new Date(`${record.session.date}T${record.session.time}`), 'h:mm a')}
+                      </div>
                     </div>
-                    <Badge variant={record.status === "present" ? "success" : "secondary"}>
-                      {record.status}
-                    </Badge>
+                    <div className="flex items-center space-x-2">
+                      {record.status === 'present' ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                      ) : (
+                        <XCircle className="h-5 w-5 text-red-500" />
+                      )}
+                      <span className={record.status === 'present' ? 'text-green-700' : 'text-red-700'}>
+                        {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-4">
-                <CalendarCheck className="h-10 w-10 mx-auto text-foreground/20 mb-2" />
-                <p className="text-foreground/50">No recent attendance records</p>
+              <div className="text-center py-6 text-muted-foreground">
+                No attendance records found
               </div>
             )}
           </CardContent>

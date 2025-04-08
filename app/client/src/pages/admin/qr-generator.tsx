@@ -29,8 +29,7 @@ const formSchema = z.object({
   duration: z.coerce
     .number()
     .min(1, "Duration must be at least 1 minute")
-    .max(60, "Duration cannot exceed 60 minutes"),
-  expiresAt: z.string().min(1, "Expiration time is required"),
+    .max(480, "Duration cannot exceed 8 hours"),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -61,8 +60,7 @@ export default function QRGenerator() {
       name: "",
       date: format(new Date(), 'yyyy-MM-dd'),
       time: format(new Date(), 'HH:mm'),
-      duration: 10,
-      expiresAt: format(addMinutes(new Date(), 10), "yyyy-MM-dd'T'HH:mm"), // Default to 10 minutes from now
+      duration: 60,
     },
   });
 
@@ -93,8 +91,8 @@ export default function QRGenerator() {
         clearInterval(timer);
         toast({
           variant: "destructive",
-          title: "QR Code Expired",
-          description: "The QR code has expired. Please generate a new one if needed.",
+          title: "Session Expired",
+          description: "The session has expired. Please generate a new one if needed.",
         });
       } else {
         setTimeLeft(diff);
@@ -112,58 +110,62 @@ export default function QRGenerator() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Format date for better consistency with database
-  const formatDateForDB = (dateString: string) => {
-    try {
-      // Keep the date in YYYY-MM-DD format
-      return dateString;
-    } catch (e) {
-      console.error("Error formatting date:", e);
-      return dateString;
-    }
-  };
-
-  // Format time for better consistency with database
-  const formatTimeForDB = (timeString: string) => {
-    try {
-      // Keep the time in HH:MM format
-      return timeString;
-    } catch (e) {
-      console.error("Error formatting time:", e);
-      return timeString;
-    }
-  };
-
   const onSubmit = async (data: FormValues) => {
     try {
       setIsSubmitting(true);
       setSessionSaved(false);
       setErrorMessage(null);
-      
-      // Format date and time for consistency
-      const formattedDate = formatDateForDB(data.date);
-      const formattedTime = formatTimeForDB(data.time);
-      
-      // Generate a unique session ID
-      const sessionId = uuidv4();
 
-      // Convert the expiration time to UTC for storage
-      const localExpirationDate = new Date(data.expiresAt);
-      const utcExpirationDate = new Date(localExpirationDate.getTime() - localExpirationDate.getTimezoneOffset() * 60000);
-      
-      // Create QR data object with formatted date and time
-      const qrData = {
-        sessionId: sessionId,
+      // Generate session ID
+      const sessionId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Calculate session end time
+      const sessionDateTime = new Date(`${data.date}T${data.time}`);
+      const sessionEndTime = new Date(sessionDateTime.getTime() + data.duration * 60000);
+
+      // Create session data
+      const sessionData = {
+        id: sessionId,
         name: data.name,
-        date: formattedDate,
-        time: formattedTime,
+        date: data.date,
+        time: data.time,
         duration: data.duration,
-        generatedAt: new Date().toISOString(),
-        expiresAfter: data.duration,
-        expiresAt: utcExpirationDate.toISOString() // Include exact expiration time
+        is_active: true,
+        created_at: new Date().toISOString(),
+        expires_at: sessionEndTime.toISOString()
       };
 
-      // Convert to string for QR code
+      // Create QR code data
+      const qrData = {
+        sessionId,
+        name: data.name,
+        date: data.date,
+        time: data.time,
+        duration: data.duration,
+        generatedAt: new Date().toISOString(),
+        expiresAt: sessionEndTime.toISOString()
+      };
+
+      // First deactivate any existing active sessions
+      const { error: deactivateError } = await supabase
+        .from('sessions')
+        .update({ is_active: false })
+        .eq('is_active', true);
+
+      if (deactivateError) {
+        throw new Error('Failed to deactivate existing sessions');
+      }
+
+      // Insert new session
+      const { error: insertError } = await supabase
+        .from('sessions')
+        .insert([sessionData]);
+
+      if (insertError) {
+        throw new Error('Failed to create new session');
+      }
+
+      // Generate QR code
       const qrString = JSON.stringify(qrData);
       setQrValue(qrString);
 
@@ -171,70 +173,24 @@ export default function QRGenerator() {
       const url = await QRCode.toDataURL(qrString);
       setQrUrl(url);
 
-      // Set expiry time for countdown (use local time for display)
-      setExpiryTime(localExpirationDate);
-      
-      // Format expires_at for PostgreSQL (UTC time)
-      const expiresAt = utcExpirationDate.toISOString();
-
-      // For debugging
-      console.log("Form data being submitted:", {
-        ...data,
-        localExpirationTime: localExpirationDate.toISOString(),
-        utcExpirationTime: expiresAt
-      });
-      
-      // Prepare the data for insertion
-      const sessionData = {
-        name: data.name,
-        date: formattedDate,
-        time: formattedTime,
-        duration: data.duration,
-        qr_code: qrString,
-        expires_at: expiresAt,
-        is_active: true
-      };
-      
-      console.log("Inserting session with data:", sessionData);
-
-      // Insert session data into Supabase
-      const { data: insertedData, error } = await supabase
-        .from('sessions')
-        .insert([sessionData])
-        .select()
-        .single();
-
-      if (error) {
-        console.error("Supabase error:", error);
-        throw new Error(`Database error: ${error.message}`);
-      }
-
-      // Update UI state
+      // Set expiry time for countdown
+      setExpiryTime(sessionEndTime);
       setSessionSaved(true);
+
+      // Refresh sessions list
       refetchSessions();
 
-      // Show success message with local time
       toast({
-        title: "QR Code Generated",
-        description: `New QR code has been generated and will expire at ${format(localExpirationDate, 'dd/MM/yyyy HH:mm')}.`,
+        title: "Session Created",
+        description: `New session "${data.name}" has been created and will end at ${format(sessionEndTime, 'HH:mm')}`,
       });
     } catch (error) {
-      console.error("Error generating QR code or saving session:", error);
-      let errorMsg = "An error occurred while generating the QR code or saving the session.";
-      
-      // Extract more specific error message if available
-      if (error instanceof Error) {
-        errorMsg = error.message;
-      } else if (typeof error === 'object' && error !== null && 'message' in error) {
-        errorMsg = String((error as any).message);
-      }
-      
-      setErrorMessage(errorMsg);
-      
+      console.error('Error creating session:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to create session');
       toast({
         variant: "destructive",
-        title: "Failed to generate QR code",
-        description: errorMsg,
+        title: "Error",
+        description: "Failed to create session. Please try again.",
       });
     } finally {
       setIsSubmitting(false);
@@ -357,29 +313,6 @@ export default function QRGenerator() {
                       <FormLabel>Duration (minutes)</FormLabel>
                       <FormControl>
                         <Input type="number" min="1" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="expiresAt"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Expiration Time</FormLabel>
-                      <FormControl>
-                        <Input 
-                          type="datetime-local" 
-                          {...field}
-                          min={format(new Date(), "yyyy-MM-dd'T'HH:mm")}
-                          onChange={(e) => {
-                            field.onChange(e);
-                            // Log the selected time for verification
-                            console.log("Selected expiration time:", new Date(e.target.value).toISOString());
-                          }}
-                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

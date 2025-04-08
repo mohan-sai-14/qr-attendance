@@ -4,24 +4,40 @@ import { SimpleLink } from "@/components/ui/simple-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, ZoomIn, ZoomOut, Camera, CheckCircle2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ZoomIn, ZoomOut, Camera, CheckCircle2, RefreshCw, CameraOff, Undo } from 'lucide-react';
 import { Loader2 } from "lucide-react";
 import jsQR from 'jsqr';
+import { useToast } from "@/components/ui/use-toast";
+import { supabase } from '@/lib/supabase';
+
+interface QRData {
+  sessionId: string;
+  name: string;
+  date: string;
+  time: string;
+  duration: number;
+  generatedAt: string;
+  expiresAt: string;
+}
 
 // QR scanner component that uses the device camera and jsQR library
 export default function StudentScanner() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [scanning, setScanning] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [selectedCamera, setSelectedCamera] = useState(null);
-  const [availableCameras, setAvailableCameras] = useState([]);
+  const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [hasCamera, setHasCamera] = useState(false);
+  const scanIntervalRef = useRef<number>();
   
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef(null);
   const streamRef = useRef(null);
 
@@ -77,36 +93,34 @@ export default function StudentScanner() {
             deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
             facingMode: selectedCamera ? undefined : 'environment',
             width: { ideal: 1280 },
-            height: { ideal: 720 }
+            height: { ideal: 720 },
+            zoom: zoom,
           }
         };
         
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         streamRef.current = stream;
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current.play();
-            scanQRCode();
-          };
-        }
+        setStream(stream);
+        setHasCamera(true);
+        setScanning(true);
+        startScanning();
       } catch (err) {
         console.error('Error starting video stream:', err);
         setError('Failed to start camera. Please check your camera permissions.');
+        setHasCamera(false);
       }
     };
     
     startStream();
-  }, [selectedCamera, scanning]);
+  }, [selectedCamera, scanning, zoom]);
 
   // Function to detect QR codes from video stream
   const scanQRCode = () => {
     if (!canvasRef.current || !videoRef.current || !videoRef.current.readyState || videoRef.current.readyState !== 4) {
       rafRef.current = requestAnimationFrame(scanQRCode);
-      return;
-    }
-    
+          return;
+        }
+        
     const canvas = canvasRef.current;
     const context = canvas.getContext('2d', { willReadFrequently: true });
     const video = videoRef.current;
@@ -136,79 +150,79 @@ export default function StudentScanner() {
   };
 
   // Handle the scanned QR code data
-  const handleQRCode = async (data) => {
+  const handleQRCode = async (qrData: string) => {
     if (loading) return; // Prevent multiple submissions
     
     try {
-      console.log('Processing QR code:', data);
+      console.log('Processing QR code:', qrData);
       setLoading(true);
       
-      // Try to parse the QR data
-      let sessionId;
+      const parsedData: QRData = JSON.parse(qrData);
       
-      try {
-        // Check if it's a URL with a query parameter
-        if (data.includes('?')) {
-          const url = new URL(data);
-          sessionId = url.searchParams.get('session') || url.searchParams.get('sessionId');
-        }
-        
-        // Check if it's a JSON string
-        if (!sessionId && (data.startsWith('{') && data.endsWith('}'))) {
-          const jsonData = JSON.parse(data);
-          sessionId = jsonData.sessionId || jsonData.session || jsonData.id;
-        }
-        
-        // Fallback: treat the whole string as session ID
-        if (!sessionId) {
-          sessionId = data;
-        }
-      } catch (e) {
-        // If parsing fails, use the raw data as session ID
-        sessionId = data;
+      // Check if QR code has expired
+      if (new Date(parsedData.expiresAt) < new Date()) {
+        toast({
+          variant: "destructive",
+          title: "QR Code Expired",
+          description: "This QR code has expired. Please ask for a new one.",
+        });
+        return;
       }
-      
-      if (!sessionId) {
-        throw new Error('Invalid QR code: No session ID found');
+
+      // Check if session exists and is active
+      const { data: session, error: sessionError } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('id', parsedData.sessionId)
+        .eq('is_active', true)
+        .single();
+
+      if (sessionError || !session) {
+        toast({
+          variant: "destructive",
+          title: "Invalid Session",
+          description: "This QR code is not valid for any active session.",
+        });
+        return;
       }
-      
-      setMessage(`Processing attendance for session: ${sessionId}...`);
-      
-      // Call the API to record attendance
-      const response = await fetch('/api/scan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          sessionId,
+
+      // Check if attendance already recorded
+      const { data: existingAttendance, error: attendanceError } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('session_id', parsedData.sessionId)
+        .eq('user_id', user?.id)
+        .single();
+
+      if (existingAttendance) {
+        toast({
+          title: "Already Recorded",
+          description: "Your attendance for this session has already been recorded.",
+        });
+        return;
+      }
+
+      // Record attendance
+      const { error: insertError } = await supabase
+        .from('attendance')
+        .insert([{
+          session_id: parsedData.sessionId,
+          user_id: user?.id,
           timestamp: new Date().toISOString(),
-          userId: user?.id,
-          username: user?.username
-        }),
+          status: 'present'
+        }]);
+
+      if (insertError) {
+        throw new Error('Failed to record attendance');
+      }
+
+      toast({
+        title: "Success!",
+        description: "Your attendance has been recorded successfully.",
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || errorData.message || 'Failed to record attendance');
-      }
-      
-      const result = await response.json();
-      
-      // Stop scanning
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-      
-      setScanning(false);
-      setSuccess(true);
-      setMessage(result.message || 'Attendance recorded successfully');
-      
-      // Auto redirect after 3 seconds
-      setTimeout(() => {
-        window.location.hash = '/student';
-      }, 3000);
+
+      // Stop scanning after successful attendance
+      stopCamera();
     } catch (err) {
       console.error('Error processing QR code:', err);
       setError(err.message || 'Unknown error occurred');
@@ -242,6 +256,50 @@ export default function StudentScanner() {
     setSuccess(false);
     setMessage('');
     setScanning(true);
+  };
+
+  const startScanning = () => {
+    if (!canvasRef.current || !videoRef.current) return;
+
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    scanIntervalRef.current = window.setInterval(() => {
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.height = video.videoHeight;
+        canvas.width = video.videoWidth;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert",
+        });
+
+        if (code) {
+          handleQRCode(code.data);
+        }
+      }
+    }, 100);
+  };
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+    }
+    setScanning(false);
+  };
+
+  const toggleZoom = (increase: boolean) => {
+    setZoom(prev => {
+      const newZoom = increase ? prev * 1.2 : prev / 1.2;
+      return Math.max(1, Math.min(newZoom, 5));
+    });
   };
 
   return (
@@ -284,7 +342,7 @@ export default function StudentScanner() {
                   <div className="w-[80%] h-[80%] max-w-[250px] max-h-[250px] border-2 border-white/50 rounded-lg relative overflow-hidden">
                     {/* Scanning animation line */}
                     <div className="absolute top-0 left-0 right-0 h-[2px] bg-green-500 animate-scan"></div>
-                  </div>
+        </div>
                 </div>
                 
                 {/* Camera controls */}
@@ -317,7 +375,7 @@ export default function StudentScanner() {
                       <RefreshCw className="h-4 w-4" />
                     </Button>
                   )}
-                </div>
+              </div>
                 
                 {loading && (
                   <div className="absolute inset-0 bg-background/80 backdrop-blur-md flex items-center justify-center z-30">
@@ -325,10 +383,10 @@ export default function StudentScanner() {
                       <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
                       <p className="font-medium text-lg">{message || 'Processing...'}</p>
                     </div>
-                  </div>
+                      </div>
                 )}
-              </div>
-              
+                      </div>
+                      
               <div className="py-4 px-6">
                 <h3 className="text-sm font-semibold mb-2">Instructions:</h3>
                 <ul className="text-sm text-muted-foreground space-y-2">
@@ -351,8 +409,8 @@ export default function StudentScanner() {
                     </li>
                   )}
                 </ul>
-              </div>
-            </div>
+                      </div>
+                    </div>
           ) : (
             <div className="p-6 space-y-6">
               {error ? (
@@ -366,7 +424,7 @@ export default function StudentScanner() {
                   <h3 className="text-xl font-semibold mb-2 text-green-500">Attendance Recorded!</h3>
                   <p className="text-muted-foreground mb-6">{message}</p>
                   <p className="text-sm text-muted-foreground">Redirecting you to the dashboard...</p>
-                </div>
+                        </div>
               ) : null}
               
               <div className="flex justify-between">
@@ -374,17 +432,17 @@ export default function StudentScanner() {
                   onClick={resetScanner}
                   variant="outline"
                 >
-                  Scan Again
-                </Button>
+                            Scan Again
+                          </Button>
                 
                 <SimpleLink to="/student">
                   <Button>Back to Dashboard</Button>
                 </SimpleLink>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                      </div>
+                    </div>
+                  )}
+            </CardContent>
+          </Card>
 
       <style jsx global>{`
         @keyframes scan {

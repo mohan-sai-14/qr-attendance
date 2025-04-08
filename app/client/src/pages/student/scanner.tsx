@@ -283,7 +283,7 @@ export default function StudentScanner() {
                 <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
                   <div className="w-[80%] h-[80%] max-w-[250px] max-h-[250px] border-2 border-white/50 rounded-lg relative overflow-hidden">
                     {/* Scanning animation line */}
-                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-green-500 animate-[scan_2s_ease-in-out_infinite]"></div>
+                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-green-500 animate-scan"></div>
                   </div>
                 </div>
                 
@@ -385,6 +385,23 @@ export default function StudentScanner() {
           )}
         </CardContent>
       </Card>
+
+      <style jsx global>{`
+        @keyframes scan {
+          0% {
+            top: 0;
+          }
+          50% {
+            top: 100%;
+          }
+          100% {
+            top: 0;
+          }
+        }
+        .animate-scan {
+          animation: scan 2s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 }

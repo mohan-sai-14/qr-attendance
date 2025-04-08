@@ -27,9 +27,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
+          vendor: ['react', 'react-dom', 'wouter'],
           ui: ['@mui/material', '@emotion/react', '@emotion/styled'],
           qr: ['@yudiel/react-qr-scanner', 'qrcode'],
+          radix: ['@radix-ui/react-*'],
         },
       },
     },

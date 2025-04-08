@@ -4,7 +4,7 @@
   "description": "QR-based attendance tracking system",
   "main": "api/index.ts",
   "scripts": {
-    "build": "npm install && cd app/client && npm install && npm run build",
+    "build": "npm install && cd app/client && npm install && npm run build && cd ../.. && mkdir -p dist && cp -r app/client/dist/* dist/",
     "start": "node dist/server/index.js",
     "dev": "cd app/client && npm run dev"
   },

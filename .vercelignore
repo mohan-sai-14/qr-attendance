@@ -1,9 +1,42 @@
+# Dependencies
 node_modules
+**/node_modules
+
+# Version control
 .git
-.vscode
+.gitignore
+
+# Environment files
 .env
 .env.local
-*.log
-.DS_Store
+.env.*
+!.env.example
+
+# IDE
+.vscode
+.idea
+
+# Build outputs
 dist
-app/client/dist 
+**/dist
+build
+**/build
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage
+**/coverage
+
+# Misc
+*.swp
+*.swo
+*~ 

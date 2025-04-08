@@ -22,15 +22,17 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: false,
     emptyOutDir: true,
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor': ['react', 'react-dom'],
-          'ui': ['@radix-ui/react-toast', '@radix-ui/react-tabs', '@radix-ui/react-dialog']
-        }
-      }
-    }
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          ui: ['@mui/material', '@emotion/react', '@emotion/styled'],
+          qr: ['@yudiel/react-qr-scanner', 'qrcode'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
   }
 }); 

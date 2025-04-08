@@ -9,14 +9,14 @@
     "dev": "cd app/client && npm run dev"
   },
   "dependencies": {
-    "@supabase/auth-helpers-nextjs": "^0.10.0",
+    "@supabase/ssr": "^0.1.0",
     "@supabase/supabase-js": "^2.39.7",
     "@vercel/node": "^3.0.22",
     "@yudiel/react-qr-scanner": "^2.2.1",
     "cookie": "^0.6.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": "18.x"
   },
   "author": "",
   "license": "ISC"

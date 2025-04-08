@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ArrowLeft, ZoomIn, ZoomOut, Camera, CheckCircle2, RefreshCw, CameraOff, Undo } from 'lucide-react';
 import { Loader2 } from "lucide-react";
 import jsQR from 'jsqr';
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { supabase } from '@/lib/supabase';
 
 interface QRData {
@@ -161,14 +161,14 @@ export default function StudentScanner() {
       
       // Check if QR code has expired
       if (new Date(parsedData.expiresAt) < new Date()) {
-        toast({
+          toast({
           variant: "destructive",
           title: "QR Code Expired",
           description: "This QR code has expired. Please ask for a new one.",
         });
-        return;
-      }
-
+          return;
+        }
+        
       // Check if session exists and is active
       const { data: session, error: sessionError } = await supabase
         .from('sessions')
@@ -178,14 +178,14 @@ export default function StudentScanner() {
         .single();
 
       if (sessionError || !session) {
-        toast({
+            toast({
           variant: "destructive",
           title: "Invalid Session",
           description: "This QR code is not valid for any active session.",
         });
-        return;
-      }
-
+            return;
+          }
+          
       // Check if attendance already recorded
       const { data: existingAttendance, error: attendanceError } = await supabase
         .from('attendance')
@@ -199,9 +199,9 @@ export default function StudentScanner() {
           title: "Already Recorded",
           description: "Your attendance for this session has already been recorded.",
         });
-        return;
-      }
-
+          return;
+        }
+        
       // Record attendance
       const { error: insertError } = await supabase
         .from('attendance')
@@ -302,7 +302,7 @@ export default function StudentScanner() {
     });
   };
 
-  return (
+    return (
     <div className="container mx-auto px-4 py-6 max-w-md">
       <div className="mb-6 flex items-center justify-between">
         <SimpleLink to="/student" className="text-foreground/80 hover:text-foreground flex items-center">

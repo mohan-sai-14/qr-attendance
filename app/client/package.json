@@ -5,11 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npx vite --config vite.config.js build",
+    "build": "vite build",
     "tsc": "tsc",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview",
-    "postinstall": "npx --yes autoprefixer@10.4.17 postcss@8.4.35 tailwindcss@3.4.1 vite@5.1.4 @vitejs/plugin-react@4.2.1 qrcode@1.5.3 terser@5.26.0"
+    "preview": "vite preview"
   },
   "browserslist": [
     ">0.2%",

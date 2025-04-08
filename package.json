@@ -12,7 +12,6 @@
     "@supabase/ssr": "0.6.1",
     "@supabase/supabase-js": "^2.39.3",
     "@vercel/node": "^3.0.22",
-    "@yudiel/react-qr-scanner": "^2.2.1",
     "cookie": "^0.6.0"
   },
   "engines": {

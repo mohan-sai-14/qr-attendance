@@ -29,8 +29,7 @@ export default defineConfig({
         manualChunks: {
           vendor: ['react', 'react-dom', 'wouter'],
           ui: ['@mui/material', '@emotion/react', '@emotion/styled'],
-          qr: ['@yudiel/react-qr-scanner', 'qrcode'],
-          radix: ['@radix-ui/react-*'],
+          qr: ['@yudiel/react-qr-scanner', 'qrcode']
         },
       },
     },

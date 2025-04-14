@@ -4,11 +4,14 @@ import { SimpleLink } from "@/components/ui/simple-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, ZoomIn, ZoomOut, Camera, CheckCircle2, RefreshCw, CameraOff, Undo } from 'lucide-react';
+import { ArrowLeft, ZoomIn, ZoomOut, Camera, CheckCircle2, RefreshCw, CameraOff, Undo, AlertCircle, CheckCircle } from 'lucide-react';
 import { Loader2 } from "lucide-react";
 import jsQR from 'jsqr';
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from '@/lib/supabase';
+import { Html5QrcodeScanner } from 'html5-qrcode';
+import { useLocation } from 'wouter';
+import { toast } from 'sonner';
 
 interface QRData {
   sessionId: string;
@@ -24,9 +27,10 @@ interface QRData {
 export default function StudentScanner() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [scanning, setScanning] = useState(true);
-  const [error, setError] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -40,6 +44,12 @@ export default function StudentScanner() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef(null);
   const streamRef = useRef(null);
+  const [, setLocation] = useLocation();
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [scanAttempts, setScanAttempts] = useState(0);
+  const maxScanAttempts = 3;
+  const scanTimeoutRef = useRef<NodeJS.Timeout>();
 
   // Get available cameras
   useEffect(() => {
@@ -151,11 +161,11 @@ export default function StudentScanner() {
 
   // Handle the scanned QR code data
   const handleQRCode = async (qrData: string) => {
-    if (loading) return; // Prevent multiple submissions
+    if (processing) return; // Prevent multiple submissions
     
     try {
       console.log('Processing QR code:', qrData);
-      setLoading(true);
+      setProcessing(true);
       
       const parsedData: QRData = JSON.parse(qrData);
       
@@ -223,12 +233,17 @@ export default function StudentScanner() {
 
       // Stop scanning after successful attendance
       stopCamera();
+
+      // Redirect to home page after 2 seconds
+      setTimeout(() => {
+        setLocation('/student');
+      }, 2000);
     } catch (err) {
       console.error('Error processing QR code:', err);
-      setError(err.message || 'Unknown error occurred');
-      setScanning(false);
+      setError(err instanceof Error ? err.message : 'Failed to process QR code');
+      toast.error(err instanceof Error ? err.message : 'Failed to process QR code');
     } finally {
-      setLoading(false);
+      setProcessing(false);
     }
   };
 
@@ -302,7 +317,176 @@ export default function StudentScanner() {
     });
   };
 
-    return (
+  useEffect(() => {
+    let scanner: Html5QrcodeScanner | null = null;
+
+    const initializeScanner = async () => {
+      try {
+        setIsInitializing(true);
+        setCameraError(null);
+
+        // Check for camera permissions first
+        const permissions = await navigator.mediaDevices.getUserMedia({ video: true });
+        permissions.getTracks().forEach(track => track.stop()); // Clean up
+
+        scanner = new Html5QrcodeScanner(
+          'qr-reader',
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1,
+            showTorchButtonIfSupported: true,
+            rememberLastUsedCamera: true,
+          },
+          false
+        );
+
+        const onScanSuccess = async (decodedText: string) => {
+          try {
+            if (processing || scanAttempts >= maxScanAttempts) return;
+            setScanAttempts(prev => prev + 1);
+            setProcessing(true);
+            setError(null);
+
+            // Clear previous timeout if exists
+            if (scanTimeoutRef.current) {
+              clearTimeout(scanTimeoutRef.current);
+            }
+
+            // Parse the QR code data
+            let sessionId: string;
+            try {
+              // Try parsing as URL first
+              const url = new URL(decodedText);
+              sessionId = url.searchParams.get('session') || '';
+            } catch {
+              // If URL parsing fails, try parsing as JSON
+              try {
+                const data = JSON.parse(decodedText);
+                sessionId = data.sessionId;
+              } catch {
+                throw new Error('Invalid QR code format');
+              }
+            }
+
+            if (!sessionId) {
+              throw new Error('Invalid QR code format');
+            }
+
+            if (!user) {
+              throw new Error('You must be logged in to mark attendance');
+            }
+
+            // Check if session exists and is active
+            const { data: session, error: sessionError } = await supabase
+              .from('sessions')
+              .select('*')
+              .eq('id', sessionId)
+              .eq('is_active', true)
+              .single();
+
+            if (sessionError || !session) {
+              throw new Error('Invalid or inactive session');
+            }
+
+            // Check if already marked attendance
+            const { data: existingAttendance } = await supabase
+              .from('attendance')
+              .select('*')
+              .eq('session_id', sessionId)
+              .eq('user_id', user.id)
+              .single();
+
+            if (existingAttendance) {
+              throw new Error('Attendance already marked for this session');
+            }
+
+            // Record attendance
+            const { error: attendanceError } = await supabase
+              .from('attendance')
+              .insert([
+                {
+                  session_id: sessionId,
+                  user_id: user.id,
+                  username: user.username,
+                  name: user.name,
+                  check_in_time: new Date().toISOString(),
+                  date: new Date().toISOString().split('T')[0],
+                  status: 'present',
+                },
+              ]);
+
+            if (attendanceError) {
+              throw attendanceError;
+            }
+
+            setSuccess(true);
+            toast.success('Attendance marked successfully!');
+            
+            // Stop scanning after successful attendance
+            if (scanner) {
+              scanner.clear();
+            }
+
+            // Redirect to home page after 2 seconds
+            setTimeout(() => {
+              setLocation('/student');
+            }, 2000);
+
+          } catch (err) {
+            console.error('Error processing QR code:', err);
+            setError(err instanceof Error ? err.message : 'Failed to process QR code');
+            toast.error(err instanceof Error ? err.message : 'Failed to process QR code');
+            
+            // Set timeout to retry scanning
+            scanTimeoutRef.current = setTimeout(() => {
+              setProcessing(false);
+              setError(null);
+            }, 2000);
+          }
+        };
+
+        const onScanError = (error: any) => {
+          if (error?.name === 'NotAllowedError') {
+            setCameraError('Camera access denied. Please check your permissions.');
+          } else if (error?.name === 'NotFoundError') {
+            setCameraError('No camera found on your device.');
+          } else if (error?.name === 'NotReadableError') {
+            setCameraError('Camera is in use by another application.');
+          } else {
+            console.warn('QR code scan error:', error);
+          }
+        };
+
+        await scanner.render(onScanSuccess, onScanError);
+        setScanning(true);
+      } catch (err) {
+        console.error('Scanner initialization error:', err);
+        setCameraError(
+          err instanceof Error 
+            ? err.message 
+            : 'Failed to initialize camera. Please check permissions and try again.'
+        );
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+
+    // Initialize scanner with a slight delay to ensure DOM is ready
+    const timer = setTimeout(initializeScanner, 100);
+
+    return () => {
+      clearTimeout(timer);
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+      }
+      if (scanner) {
+        scanner.clear();
+      }
+    };
+  }, [user, processing]);
+
+  return (
     <div className="container mx-auto px-4 py-6 max-w-md">
       <div className="mb-6 flex items-center justify-between">
         <SimpleLink to="/student" className="text-foreground/80 hover:text-foreground flex items-center">
@@ -320,7 +504,24 @@ export default function StudentScanner() {
         </CardHeader>
         
         <CardContent className="p-0 relative">
-          {scanning ? (
+          {isInitializing ? (
+            <div className="flex flex-col items-center justify-center h-[350px] bg-background">
+              <Loader2 className="h-8 w-8 animate-spin mb-4" />
+              <p className="text-muted-foreground">Initializing camera...</p>
+            </div>
+          ) : cameraError ? (
+            <div className="p-6 text-center">
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Camera Error</AlertTitle>
+                <AlertDescription>{cameraError}</AlertDescription>
+              </Alert>
+              <Button onClick={() => window.location.reload()} className="mt-4">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry
+              </Button>
+            </div>
+          ) : scanning ? (
             <div className="relative">
               <div className="qr-scanner-container relative overflow-hidden h-[350px] bg-black">
                 <video 
@@ -377,7 +578,7 @@ export default function StudentScanner() {
                   )}
               </div>
                 
-                {loading && (
+                {processing && (
                   <div className="absolute inset-0 bg-background/80 backdrop-blur-md flex items-center justify-center z-30">
                     <div className="text-center">
                       <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
@@ -444,22 +645,16 @@ export default function StudentScanner() {
             </CardContent>
           </Card>
 
-      <style jsx global>{`
-        @keyframes scan {
-          0% {
-            top: 0;
-          }
-          50% {
-            top: 100%;
-          }
-          100% {
-            top: 0;
-          }
-        }
-        .animate-scan {
-          animation: scan 2s ease-in-out infinite;
-        }
-      `}</style>
+      {scanAttempts >= maxScanAttempts && (
+        <Alert variant="warning" className="mt-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Multiple Scan Attempts</AlertTitle>
+          <AlertDescription>
+            Having trouble scanning? Make sure the QR code is clearly visible and well-lit.
+            You can also try cleaning your camera lens.
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 }

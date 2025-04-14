@@ -1,174 +1,142 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabaseUrl = 'https://qwavakkbfpdgkvtctogx.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXZha2tiZnBkZ2t2dGN0b2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3MTE4MjYsImV4cCI6MjA1ODI4NzgyNn0.Kdwo9ICmcsHPhK_On6G73ccSPkcEqzAg2BtvblhD8co';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 interface User {
-  id: number;
+  id: string;
   username: string;
   name: string;
   role: 'admin' | 'student';
+  email?: string;
 }
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  error: string | null;
-  login: (username: string, password: string) => Promise<User>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  refreshUser: () => Promise<User | null>;
+  checkAuth: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // Helper function to redirect to login
-  const redirectToLogin = () => {
-    // Only redirect if we're not already on the login page
-    if (!window.location.pathname.includes('/login') && 
-        !window.location.pathname.includes('/register') &&
-        window.location.pathname !== '/') {
-      console.log('Redirecting to login page');
-      window.location.href = '/';
+  const checkAuth = async () => {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) throw error;
+      
+      if (session?.user) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+          
+        if (userError) throw userError;
+        
+        setUser(userData);
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Error checking auth:', error);
+      setUser(null);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Check if user is logged in on initial load
-  useEffect(() => {
-    const checkAuthStatus = async () => {
+  const login = async (email: string, password: string) => {
+    try {
       setIsLoading(true);
-      try {
-        const response = await axios.get('/api/me', { 
-          withCredentials: true,
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
-        });
-        
-        if (response.data && response.data.id) {
-          console.log('User authenticated:', response.data);
-          setUser(response.data);
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      if (error) throw error;
+      
+      if (data.user) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
           
-          // Store in localStorage as a backup
-          localStorage.setItem('user', JSON.stringify(response.data));
-        } else {
-          console.log('No authenticated user found');
-          setUser(null);
-          localStorage.removeItem('user');
-          // Redirect to login page if not authenticated
-          redirectToLogin();
-        }
-      } catch (error) {
-        console.error('Error checking auth status:', error);
+        if (userError) throw userError;
         
-        // Clear user data from localStorage to prevent unauthorized access
-        localStorage.removeItem('user');
-        setUser(null);
-        
-        // Redirect to login page on auth error
-        redirectToLogin();
-      } finally {
-        setIsLoading(false);
+        setUser(userData);
       }
-    };
+    } catch (error) {
+      console.error('Error logging in:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    checkAuthStatus();
-    
-    // Also add event listener for page visibility changes
-    // This helps catch when a user switches back to the app after it's been in background
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        checkAuthStatus();
+  const logout = async () => {
+    try {
+      setIsLoading(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setUser(null);
+    } catch (error) {
+      console.error('Error logging out:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+          
+        if (!userError) {
+          setUser(userData);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
       }
     });
-    
+
     return () => {
-      document.removeEventListener('visibilitychange', () => {});
+      subscription.unsubscribe();
     };
   }, []);
 
-  const login = async (username: string, password: string): Promise<User> => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      console.log('Attempting login for:', username);
-      const response = await axios.post('/api/login', { username, password }, { withCredentials: true });
-      
-      console.log('Login response:', response);
-      
-      if (response.data && response.data.id) {
-        setUser(response.data);
-        localStorage.setItem('user', JSON.stringify(response.data));
-        return response.data;
-      } else {
-        throw new Error('Invalid response from server');
-      }
-    } catch (error: any) {
-      console.error('Login error:', error);
-      const errorMessage = error.response?.data?.error || 'Failed to login. Please try again.';
-      setError(errorMessage);
-      throw new Error(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const logout = async (): Promise<void> => {
-    setIsLoading(true);
-    try {
-      await axios.post('/api/logout', {}, { withCredentials: true });
-      setUser(null);
-      localStorage.removeItem('user');
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  const refreshUser = async (): Promise<User | null> => {
-    setIsLoading(true);
-    try {
-      const response = await axios.get('/api/me', { 
-        withCredentials: true,
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
-      
-      if (response.data && response.data.id) {
-        setUser(response.data);
-        localStorage.setItem('user', JSON.stringify(response.data));
-        return response.data;
-      }
-      return null;
-    } catch (error) {
-      console.error('Error refreshing user:', error);
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
-    <AuthContext.Provider value={{ user, isLoading, error, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, checkAuth }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
 
-export const useAuth = () => {
+export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-};
+}
 
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn = ({ on401 }: { on401: UnauthorizedBehavior }) => 

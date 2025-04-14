@@ -11,7 +11,6 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form";
-import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { createClient } from '@supabase/supabase-js';
@@ -43,7 +42,7 @@ const AttendanceCodeInput: React.FC<AttendanceCodeInputProps> = ({
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      code: ""
+      code: sessionId || ""
     }
   });
 
@@ -51,137 +50,106 @@ const AttendanceCodeInput: React.FC<AttendanceCodeInputProps> = ({
     try {
       setIsSubmitting(true);
       
-      // For this demo, we'll treat the code as a direct session ID
-      // In a real app, you would validate the code against the session
-      const codeToUse = data.code.trim();
-      
-      console.log(`Submitting attendance with code: ${codeToUse}`);
-      
-      // First, try direct Supabase insert
-      try {
-        console.log("Attempting direct Supabase insert with code:", codeToUse);
-        
-        // Format the current date for the database record
-        const now = new Date();
-        const formattedDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
-        const localTimestamp = now.toISOString();
-        
-        // Insert attendance record directly to Supabase
-        const { data: insertData, error: insertError } = await supabase
-        .from('attendance')
-        .insert([{
-            session_id: codeToUse,
-            user_id: user?.id || 3,
-            username: user?.username || 'student',
-            name: user?.name || 'Student',
-          check_in_time: localTimestamp,
-            date: formattedDate,
-          status: 'present',
-            session_name: `Session ${codeToUse}`
-        }])
-        .select();
-
-      if (insertError) {
-          console.error('Direct Supabase error:', insertError);
-          // Continue to API fallback
-        } else {
-          console.log('Successfully saved attendance directly to Supabase:', insertData);
-          toast({
-            title: "Success",
-            description: "Attendance recorded successfully!"
-          });
-          
-          // Use baseUrl for safe navigation
-          setTimeout(() => {
-            const baseUrl = window.location.origin;
-            window.location.href = `${baseUrl}/student`;
-          }, 1500);
-          
-          return;
-        }
-      } catch (supabaseError) {
-        console.error("Error with direct Supabase insert:", supabaseError);
-        // Continue to API fallback
+      if (!user) {
+        throw new Error("You must be logged in to record attendance");
       }
       
-      // Fallback to API if direct insert fails
-      console.log("Falling back to API for attendance recording");
-      const response = await fetch('/api/scan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          sessionId: codeToUse,
-          userId: user?.id || 3, // Default ID if user context is not available
-          username: user?.username || 'student',
-          timestamp: new Date().toISOString()
-        }),
-        credentials: 'include'
-      });
+      // Validate the session exists and is active
+      const { data: session, error: sessionError } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('id', data.code)
+        .eq('is_active', true)
+        .single();
       
-      const result = await response.json();
+      if (sessionError || !session) {
+        throw new Error("Invalid or inactive session");
+      }
       
-      if (!response.ok) {
-        console.error("Error recording attendance with code:", result);
-        onError(result.error || result.message || "Failed to record attendance");
+      // Check if attendance already recorded
+      const { data: existingAttendance, error: attendanceError } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('session_id', data.code)
+        .eq('user_id', user.id)
+        .single();
+      
+      if (existingAttendance) {
+        toast({
+          title: "Already Recorded",
+          description: "Your attendance for this session has already been recorded.",
+        });
         return;
       }
-
-      console.log("Attendance recorded successfully with code:", result);
       
-      // Use baseUrl for direct navigation rather than relying on redirectUrl
-      setTimeout(() => {
-        const baseUrl = window.location.origin;
-        window.location.href = `${baseUrl}/student`;
-      }, 1500);
+      // Record attendance
+      const now = new Date();
+      const { error: insertError } = await supabase
+        .from('attendance')
+        .insert([{
+          session_id: data.code,
+          user_id: user.id,
+          username: user.username,
+          name: user.name,
+          check_in_time: now.toISOString(),
+          date: now.toISOString().split('T')[0],
+          status: 'present'
+        }]);
       
-    } catch (error) {
-      console.error("Error recording attendance with code:", error);
-      onError("An error occurred while recording attendance. Please try again.");
+      if (insertError) {
+        throw insertError;
+      }
+      
+      toast({
+        title: "Success",
+        description: "Attendance recorded successfully!",
+      });
+      
+      // Redirect to dashboard
+      onSuccess('/student');
+      
+    } catch (error: any) {
+      console.error("Error recording attendance:", error);
+      onError(error.message || "Failed to record attendance");
+      
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to record attendance",
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="space-y-4">
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <FormField
-            control={form.control}
-            name="code"
-            render={({ field }) => (
-              <FormItem>
-                <FormControl>
-                  <Input 
-                    placeholder="Enter attendance code" 
-                    {...field} 
-                    disabled={isSubmitting}
-                    className="text-center text-lg py-6"
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          
-          <Button 
-            type="submit" 
-            className="w-full" 
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting...
-              </>
-            ) : (
-              "Submit Code"
-            )}
-          </Button>
-        </form>
-      </Form>
-    </div>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="code"
+          render={({ field }) => (
+            <FormItem>
+              <FormControl>
+                <Input
+                  placeholder="Enter attendance code"
+                  {...field}
+                  disabled={isSubmitting}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? "Recording..." : "Submit"}
+        </Button>
+      </form>
+    </Form>
   );
 };
 

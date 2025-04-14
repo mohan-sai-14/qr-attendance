@@ -1,12 +1,14 @@
 {
   "name": "qr-attendance",
-  "version": "1.0.0",
+  "version": "0.1.0",
+  "private": true,
   "description": "QR-based attendance tracking system",
   "main": "api/index.ts",
   "scripts": {
-    "build": "npm install && cd app/client && npm install && npm run build && cd ../.. && mkdir -p dist && cp -r app/client/dist/* dist/",
-    "start": "node dist/server/index.js",
-    "dev": "cd app/client && npm run dev"
+    "dev": "cd app/client && npm run dev",
+    "build": "cd app/client && npm install && npm run build",
+    "start": "cd app/client && npm run start",
+    "lint": "cd app/client && npm run lint"
   },
   "dependencies": {
     "@supabase/ssr": "0.6.1",

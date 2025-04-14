@@ -4,10 +4,7 @@ const nextConfig = {
   swcMinify: true,
   images: {
     domains: ['localhost'],
-  },
-  experimental: {
-    serverActions: true,
-  },
+  }
 }
 
 module.exports = nextConfig 

@@ -98,14 +98,14 @@ export async function POST(req: NextRequest) {
     if (existingAttendance) {
       const { data, error } = await supabase
         .from('attendance')
-        .update({ 
-          status: 'present',
-          timestamp: timestamp || new Date().toISOString()
+        .update({
+          timestamp: timestamp || new Date().toISOString(),
+          status: 'present'
         })
         .eq('id', existingAttendance.id)
         .select()
         .single();
-      
+        
       if (error) {
         console.error('Error updating attendance:', error);
         return NextResponse.json(
@@ -116,22 +116,22 @@ export async function POST(req: NextRequest) {
       
       result = data;
     } else {
-      // Otherwise create a new attendance record
+      // Create new attendance record
       const { data, error } = await supabase
         .from('attendance')
-        .insert([{
+        .insert({
           session_id: sessionId,
           user_id: user.id,
           timestamp: timestamp || new Date().toISOString(),
           status: 'present'
-        }])
+        })
         .select()
         .single();
-      
+        
       if (error) {
-        console.error('Error inserting attendance:', error);
+        console.error('Error creating attendance:', error);
         return NextResponse.json(
-          { error: 'Database Error', message: 'Failed to record attendance' },
+          { error: 'Database Error', message: 'Failed to create attendance record' },
           { status: 500 }
         );
       }
@@ -139,22 +139,11 @@ export async function POST(req: NextRequest) {
       result = data;
     }
     
-    // Return success response
-    return NextResponse.json({
-      success: true,
-      message: existingAttendance 
-        ? 'Your attendance has been updated successfully' 
-        : 'Your attendance has been recorded successfully',
-      data: result
-    });
-    
+    return NextResponse.json(result);
   } catch (error) {
-    console.error('Unexpected error in scan API:', error);
+    console.error('Error processing scan:', error);
     return NextResponse.json(
-      { 
-        error: 'Server Error', 
-        message: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      },
+      { error: 'Internal Server Error', message: 'An unexpected error occurred' },
       { status: 500 }
     );
   }

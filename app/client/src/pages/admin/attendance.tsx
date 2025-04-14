@@ -8,19 +8,13 @@ import { Download, QrCode as QrCodeIcon, PlusCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { QRCodeSVG } from "qrcode.react";
 import QRCode from "qrcode";
-import { supabase } from "@/lib/supabase";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AttendanceRecord } from "@/types";
 import { useToast } from "@/hooks/use-toast";
-import { createClient } from '@supabase/supabase-js';
 import { isQRCodeExpired, getQRCodeTimeRemaining, setupSessionExpirationHandler } from "@/lib/qrcode";
-
-// Initialize Supabase
-const supabaseUrl = 'https://qwavakkbfpdgkvtctogx.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXZha2tiZnBkZ2t2dGN0b2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3MTE4MjYsImV4cCI6MjA1ODI4NzgyNn0.Kdwo9ICmcsHPhK_On6G73ccSPkcEqzAg2BtvblhD8co';
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabase } from "@/lib/supabase";
 
 export default function Attendance() {
   const [sessionFilter, setSessionFilter] = useState<string>("all");

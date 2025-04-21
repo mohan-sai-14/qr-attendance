@@ -155,6 +155,7 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
       
       const constraints: MediaTrackConstraints = {
         advanced: [{
+          // @ts-ignore - zoom is a valid constraint but not included in type definition
           zoom: clampedZoom
         }]
       };

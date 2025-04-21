@@ -94,41 +94,45 @@ export default function StudentScanner({ autoStart = false }: StudentScannerProp
   // Start camera stream with selected camera
   useEffect(() => {
     const startStream = async () => {
-      if (!selectedCamera || !scanning) return;
-      
-      try {
-        // Stop any existing stream
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
+      if (!scanning) {
+        if (videoRef.current && videoRef.current.srcObject) {
+          const stream = videoRef.current.srcObject as MediaStream;
+          stream.getTracks().forEach(track => track.stop());
+          videoRef.current.srcObject = null;
         }
-        
-        // Start new stream
-        const newStream = await navigator.mediaDevices.getUserMedia({
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             deviceId: selectedCamera,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
             facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            zoom: zoom
           }
         });
-        
-        streamRef.current = newStream;
-        setStream(newStream);
-        setHasCamera(true);
-        
+
         if (videoRef.current) {
-          videoRef.current.srcObject = newStream;
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
         }
-      } catch (err) {
-        console.error('Error starting camera:', err);
-        setError('Unable to start camera. Please ensure camera permissions are granted.');
-        setHasCamera(false);
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+        setError('Failed to access camera. Please check permissions.');
       }
     };
-    
+
     startStream();
     
     return () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+    };
   }, [selectedCamera, scanning, zoom]);
 
   // Function to detect QR codes from video stream

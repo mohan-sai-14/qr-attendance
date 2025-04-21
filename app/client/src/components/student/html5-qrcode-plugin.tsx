@@ -13,10 +13,8 @@ interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
   };
 }
 
-interface ExtendedMediaTrackConstraints extends MediaTrackConstraints {
-  advanced?: Array<{
-    zoom?: number;
-  }>;
+interface ZoomConstraint {
+  zoom: number;
 }
 
 interface HTML5QrcodePluginProps {
@@ -88,8 +86,8 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
       const zoomMax = capabilities.zoom.max || 5;
       const clampedZoom = Math.max(zoomMin, Math.min(level, zoomMax));
       
-      const constraints: ExtendedMediaTrackConstraints = {
-        advanced: [{ zoom: clampedZoom }]
+      const constraints: MediaTrackConstraints = {
+        advanced: [{ zoom: clampedZoom } as ZoomConstraint]
       };
       
       await videoTrack.applyConstraints(constraints);

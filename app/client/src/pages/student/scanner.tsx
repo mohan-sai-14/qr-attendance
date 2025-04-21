@@ -23,11 +23,15 @@ interface QRData {
   expiresAt: string;
 }
 
+interface StudentScannerProps {
+  autoStart?: boolean;
+}
+
 // QR scanner component that uses the device camera and jsQR library
-export default function StudentScanner() {
+export default function StudentScanner({ autoStart = false }: StudentScannerProps) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [scanning, setScanning] = useState(false);
+  const [scanning, setScanning] = useState(autoStart);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -98,30 +102,33 @@ export default function StudentScanner() {
           streamRef.current.getTracks().forEach(track => track.stop());
         }
         
-        const constraints = {
+        // Start new stream
+        const newStream = await navigator.mediaDevices.getUserMedia({
           video: {
-            deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
-            facingMode: selectedCamera ? undefined : 'environment',
+            deviceId: selectedCamera,
+            facingMode: 'environment',
             width: { ideal: 1280 },
-            height: { ideal: 720 },
-            zoom: zoom,
+            height: { ideal: 720 }
           }
-        };
+        });
         
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        streamRef.current = stream;
-        setStream(stream);
+        streamRef.current = newStream;
+        setStream(newStream);
         setHasCamera(true);
-        setScanning(true);
-        startScanning();
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = newStream;
+        }
       } catch (err) {
-        console.error('Error starting video stream:', err);
-        setError('Failed to start camera. Please check your camera permissions.');
+        console.error('Error starting camera:', err);
+        setError('Unable to start camera. Please ensure camera permissions are granted.');
         setHasCamera(false);
       }
     };
     
     startStream();
+    
+    return () => {
   }, [selectedCamera, scanning, zoom]);
 
   // Function to detect QR codes from video stream

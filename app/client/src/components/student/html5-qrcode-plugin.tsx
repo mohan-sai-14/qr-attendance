@@ -5,6 +5,14 @@ import { Button } from '@/components/ui/button';
 
 const qrcodeRegionId = "html5qr-code-full-region";
 
+interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
+  zoom?: {
+    min: number;
+    max: number;
+    step: number;
+  };
+}
+
 interface HTML5QrcodePluginProps {
   fps?: number;
   qrbox?: number;
@@ -19,88 +27,69 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
   const isScanning = useRef<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1.0);
   const [showZoomControls, setShowZoomControls] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
   const currentCamera = useRef<string | null>(null);
 
   useEffect(() => {
-    // when component mounts
-    const config = {
-      fps: props.fps || 10,
-      qrbox: props.qrbox || 250,
-      disableFlip: props.disableFlip || false,
-      verbose: props.verbose === true,
-    };
-
     // Cleanup function
     return () => {
       if (html5QrCode.current && isScanning.current) {
-        html5QrCode.current.stop().catch(error => console.error('Error stopping scanner:', error));
+        html5QrCode.current.stop().catch(error => {
+          console.error('Error stopping scanner:', error);
+        });
         isScanning.current = false;
       }
     };
-  }, [props.fps, props.qrbox, props.disableFlip, props.verbose]);
-
-  // Check if zoom is supported
-  useEffect(() => {
-    const checkZoomSupport = async () => {
-      try {
-        // Get default video device
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        
-        // Get track capabilities
-        const videoTrack = stream.getVideoTracks()[0];
-        const capabilities = videoTrack.getCapabilities();
-        
-        // Check if zoom is supported
-        if (capabilities.zoom) {
-          setShowZoomControls(true);
-          console.log('Zoom is supported with range:', capabilities.zoom.min, 'to', capabilities.zoom.max);
-        } else {
-          console.log('Zoom is not supported on this device');
-          setShowZoomControls(false);
-        }
-        
-        // Always stop the stream when done
-        stream.getTracks().forEach(track => track.stop());
-      } catch (error) {
-        console.error('Error checking zoom support:', error);
-        setShowZoomControls(false);
-      }
-    };
-    
-    checkZoomSupport();
   }, []);
 
-  // Apply zoom to active video track
+  const checkCameraCapabilities = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const videoTrack = stream.getVideoTracks()[0];
+      const capabilities = videoTrack.getCapabilities() as ExtendedMediaTrackCapabilities;
+      
+      if (capabilities.zoom) {
+        setShowZoomControls(true);
+        setZoomLevel(capabilities.zoom.min || 1.0);
+        console.log('Zoom is supported with range:', capabilities.zoom.min, 'to', capabilities.zoom.max);
+      } else {
+        setShowZoomControls(false);
+        console.log('Zoom is not supported on this device');
+      }
+      
+      stream.getTracks().forEach(track => track.stop());
+    } catch (error) {
+      console.error('Error checking camera capabilities:', error);
+      setShowZoomControls(false);
+      setError('Failed to access camera. Please ensure camera permissions are granted.');
+    }
+  };
+
   const applyZoom = async (level: number) => {
     try {
       if (!html5QrCode.current || !isScanning.current) return;
       
-      // Get current scanner's video element
       const videoElement = document.querySelector('#html5qr-code-full-region video') as HTMLVideoElement;
       if (!videoElement || !videoElement.srcObject) return;
       
-      // Apply zoom constraints to the active track
       const videoTrack = (videoElement.srcObject as MediaStream).getVideoTracks()[0];
       if (!videoTrack) return;
       
-      // Check if constraints are supported
-      const capabilities = videoTrack.getCapabilities();
+      const capabilities = videoTrack.getCapabilities() as ExtendedMediaTrackCapabilities;
       if (!capabilities.zoom) return;
       
-      // Ensure zoom level is within range
       const zoomMin = capabilities.zoom.min || 1;
       const zoomMax = capabilities.zoom.max || 5;
       const clampedZoom = Math.max(zoomMin, Math.min(level, zoomMax));
       
-      // Apply zoom
       await videoTrack.applyConstraints({
         advanced: [{ zoom: clampedZoom }]
       });
       
-      console.log('Applied zoom level:', clampedZoom);
       setZoomLevel(clampedZoom);
     } catch (error) {
       console.error('Error applying zoom:', error);
+      setError('Failed to apply zoom. Please try again.');
     }
   };
 
@@ -115,91 +104,93 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
   };
 
   useEffect(() => {
-    if (html5QrCode.current === null) {
-      html5QrCode.current = new Html5Qrcode(qrcodeRegionId);
-    }
-
-    const startScanner = async () => {
+    const initializeScanner = async () => {
       try {
+        if (html5QrCode.current === null) {
+          html5QrCode.current = new Html5Qrcode(qrcodeRegionId);
+        }
+
         const devices = await Html5Qrcode.getCameras();
-        console.log('Available cameras:', devices);
-        
-        if (devices && devices.length > 0) {
-          // Special handling for mobile devices
-          let cameraId = devices[0].id;
+        if (!devices || devices.length === 0) {
+          setError('No cameras found. Please ensure your device has a camera.');
+          return;
+        }
+
+        // Try to find the back camera on mobile devices
+        let cameraId = devices[0].id;
+        if (devices.length > 1 && /Mobile|Android|iOS|iPhone|iPad/i.test(navigator.userAgent)) {
+          const backCamera = devices.find(camera => {
+            const label = camera.label.toLowerCase();
+            return label.includes('back') || label.includes('rear') || label.includes('environment');
+          });
           
-          // On mobile, prefer back camera (usually index 0 is front camera)
-          if (devices.length > 1 && /Mobile|Android|iOS|iPhone|iPad/i.test(navigator.userAgent)) {
-            // Try to find the back camera by checking device labels
-            const backCamera = devices.find(camera => {
-              const label = camera.label.toLowerCase();
-              return (
-                label.includes('back') || 
-                label.includes('rear') || 
-                label.includes('environment') ||
-                !label.includes('front')
-              );
-            });
-            
-            if (backCamera) {
-              cameraId = backCamera.id;
-              console.log('Selected back camera:', backCamera.label);
-            } else {
-              // If no clear back camera, use the last camera in the list
-              // (often the back camera on mobile devices)
-              cameraId = devices[devices.length - 1].id;
-              console.log('Using last camera as back camera:', devices[devices.length - 1].label);
-            }
-          }
-          
-          currentCamera.current = cameraId;
-          
-          const config = {
-            fps: props.fps || 10,
-            qrbox: {
-              width: props.qrbox || 250,
-              height: props.qrbox || 250
-            },
-            aspectRatio: 1.0,
-            // Use environment facing mode for mobile
-            videoConstraints: {
-              deviceId: cameraId,
-              facingMode: "environment",
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            }
-          };
-          
-          await html5QrCode.current.start(
-            cameraId,
-            config,
-            props.qrCodeSuccessCallback,
-            props.qrCodeErrorCallback || (() => {})
-          );
-          
-          isScanning.current = true;
-          
-          // Once camera is started, set initial zoom level after a delay
-          // to ensure camera is fully initialized
-          setTimeout(() => {
-            applyZoom(zoomLevel);
-          }, 1000);
-        } else {
-          console.error('No cameras found');
-          if (props.qrCodeErrorCallback) {
-            props.qrCodeErrorCallback('No cameras found', null);
+          if (backCamera) {
+            cameraId = backCamera.id;
+          } else {
+            cameraId = devices[devices.length - 1].id;
           }
         }
+
+        currentCamera.current = cameraId;
+        
+        const config = {
+          fps: props.fps || 10,
+          qrbox: {
+            width: props.qrbox || 250,
+            height: props.qrbox || 250
+          },
+          aspectRatio: 1.0,
+          videoConstraints: {
+            deviceId: cameraId,
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        };
+
+        await html5QrCode.current.start(
+          cameraId,
+          config,
+          props.qrCodeSuccessCallback,
+          props.qrCodeErrorCallback || (() => {})
+        );
+        
+        isScanning.current = true;
+        await checkCameraCapabilities();
+        
+        // Set initial zoom after camera is initialized
+        setTimeout(() => {
+          applyZoom(zoomLevel);
+        }, 1000);
       } catch (error) {
-        console.error('Error starting scanner:', error);
+        console.error('Error initializing scanner:', error);
+        setError('Failed to initialize camera. Please try again.');
         if (props.qrCodeErrorCallback) {
-          props.qrCodeErrorCallback('Error starting scanner', error);
+          props.qrCodeErrorCallback('Error initializing scanner', error);
         }
       }
     };
 
-    startScanner();
+    initializeScanner();
   }, [props.qrCodeSuccessCallback, props.qrCodeErrorCallback]);
+
+  if (error) {
+    return (
+      <div className="text-center p-4">
+        <p className="text-red-500">{error}</p>
+        <Button 
+          variant="outline" 
+          onClick={() => {
+            setError(null);
+            initializeScanner();
+          }}
+          className="mt-4"
+        >
+          Try Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="relative">

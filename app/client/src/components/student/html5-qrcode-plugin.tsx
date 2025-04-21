@@ -13,6 +13,12 @@ interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
   };
 }
 
+interface ExtendedMediaTrackConstraints extends MediaTrackConstraints {
+  advanced?: Array<{
+    zoom?: number;
+  }>;
+}
+
 interface HTML5QrcodePluginProps {
   fps?: number;
   qrbox?: number;
@@ -82,10 +88,11 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
       const zoomMax = capabilities.zoom.max || 5;
       const clampedZoom = Math.max(zoomMin, Math.min(level, zoomMax));
       
-      await videoTrack.applyConstraints({
+      const constraints: ExtendedMediaTrackConstraints = {
         advanced: [{ zoom: clampedZoom }]
-      });
+      };
       
+      await videoTrack.applyConstraints(constraints);
       setZoomLevel(clampedZoom);
     } catch (error) {
       console.error('Error applying zoom:', error);

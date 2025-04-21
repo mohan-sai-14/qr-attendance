@@ -30,6 +30,73 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
   const [error, setError] = useState<string | null>(null);
   const currentCamera = useRef<string | null>(null);
 
+  const initializeScanner = async () => {
+    try {
+      if (html5QrCode.current === null) {
+        html5QrCode.current = new Html5Qrcode(qrcodeRegionId);
+      }
+
+      const devices = await Html5Qrcode.getCameras();
+      if (!devices || devices.length === 0) {
+        setError('No cameras found. Please ensure your device has a camera.');
+        return;
+      }
+
+      // Try to find the back camera on mobile devices
+      let cameraId = devices[0].id;
+      if (devices.length > 1 && /Mobile|Android|iOS|iPhone|iPad/i.test(navigator.userAgent)) {
+        const backCamera = devices.find(camera => {
+          const label = camera.label.toLowerCase();
+          return label.includes('back') || label.includes('rear') || label.includes('environment');
+        });
+        
+        if (backCamera) {
+          cameraId = backCamera.id;
+        } else {
+          cameraId = devices[devices.length - 1].id;
+        }
+      }
+
+      currentCamera.current = cameraId;
+      
+      const config = {
+        fps: props.fps || 10,
+        qrbox: {
+          width: props.qrbox || 250,
+          height: props.qrbox || 250
+        },
+        aspectRatio: 1.0,
+        videoConstraints: {
+          deviceId: cameraId,
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+
+      await html5QrCode.current.start(
+        cameraId,
+        config,
+        props.qrCodeSuccessCallback,
+        props.qrCodeErrorCallback || (() => {})
+      );
+      
+      isScanning.current = true;
+      await checkCameraCapabilities();
+      
+      // Set initial zoom after camera is initialized
+      setTimeout(() => {
+        applyZoom(zoomLevel);
+      }, 1000);
+    } catch (error) {
+      console.error('Error initializing scanner:', error);
+      setError('Failed to initialize camera. Please try again.');
+      if (props.qrCodeErrorCallback) {
+        props.qrCodeErrorCallback('Error initializing scanner', error);
+      }
+    }
+  };
+
   useEffect(() => {
     // Cleanup function
     return () => {
@@ -41,6 +108,10 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
       }
     };
   }, []);
+
+  useEffect(() => {
+    initializeScanner();
+  }, [props.qrCodeSuccessCallback, props.qrCodeErrorCallback]);
 
   const checkCameraCapabilities = async () => {
     try {
@@ -105,77 +176,6 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
     const newZoom = Math.max(1, zoomLevel - 0.5);
     applyZoom(newZoom);
   };
-
-  useEffect(() => {
-    const initializeScanner = async () => {
-      try {
-        if (html5QrCode.current === null) {
-          html5QrCode.current = new Html5Qrcode(qrcodeRegionId);
-        }
-
-        const devices = await Html5Qrcode.getCameras();
-        if (!devices || devices.length === 0) {
-          setError('No cameras found. Please ensure your device has a camera.');
-          return;
-        }
-
-        // Try to find the back camera on mobile devices
-        let cameraId = devices[0].id;
-        if (devices.length > 1 && /Mobile|Android|iOS|iPhone|iPad/i.test(navigator.userAgent)) {
-          const backCamera = devices.find(camera => {
-            const label = camera.label.toLowerCase();
-            return label.includes('back') || label.includes('rear') || label.includes('environment');
-          });
-          
-          if (backCamera) {
-            cameraId = backCamera.id;
-          } else {
-            cameraId = devices[devices.length - 1].id;
-          }
-        }
-
-        currentCamera.current = cameraId;
-        
-        const config = {
-          fps: props.fps || 10,
-          qrbox: {
-            width: props.qrbox || 250,
-            height: props.qrbox || 250
-          },
-          aspectRatio: 1.0,
-          videoConstraints: {
-            deviceId: cameraId,
-            facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        };
-
-        await html5QrCode.current.start(
-          cameraId,
-          config,
-          props.qrCodeSuccessCallback,
-          props.qrCodeErrorCallback || (() => {})
-        );
-        
-        isScanning.current = true;
-        await checkCameraCapabilities();
-        
-        // Set initial zoom after camera is initialized
-        setTimeout(() => {
-          applyZoom(zoomLevel);
-        }, 1000);
-      } catch (error) {
-        console.error('Error initializing scanner:', error);
-        setError('Failed to initialize camera. Please try again.');
-        if (props.qrCodeErrorCallback) {
-          props.qrCodeErrorCallback('Error initializing scanner', error);
-        }
-      }
-    };
-
-    initializeScanner();
-  }, [props.qrCodeSuccessCallback, props.qrCodeErrorCallback]);
 
   if (error) {
     return (

@@ -6,7 +6,7 @@
   "main": "api/index.ts",
   "scripts": {
     "dev": "cd app/client && npm run dev",
-    "build": "cd app/client && npm install && npm run build",
+    "build": "cd app/client && npm install --include=dev && npm run build",
     "start": "cd app/client && npm run start",
     "lint": "cd app/client && npm run lint"
   },

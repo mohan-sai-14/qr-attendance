@@ -1,14 +1,14 @@
 {
   "version": 2,
-  "framework": null,
+  "framework": "nextjs",
   "functions": {
     "api/index.ts": {
       "memory": 1024,
       "maxDuration": 10
     }
   },
-  "buildCommand": "npm install && cd app/client && npm install && npm run build && cd ../.. && mkdir -p dist && cp -r app/client/dist/* dist/",
-  "outputDirectory": "dist",
+  "buildCommand": "npm install && cd app/client && npm install --include=dev && npm run build",
+  "outputDirectory": "app/client/.next",
   "routes": [
     { 
       "src": "/api/(.*)", 

@@ -1,71 +1,70 @@
 import * as React from "react"
-import OTPInput, { OTPInputContext } from "react-otp-input"
 import { Dot } from "lucide-react"
-
 import { cn } from "@/lib/utils"
 
-const InputOTP = React.forwardRef<
-  HTMLInputElement,
-  React.InputHTMLAttributes<HTMLInputElement>
->(({ className, type, ...props }, ref) => {
-  return (
-    <OTPInput
-      {...props}
-      type={type}
-      className={cn(
-        "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      ref={ref}
-    />
-  )
-})
+interface InputOTPProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  numInputs?: number
+  separator?: React.ReactNode
+  value?: string
+  onChange?: (value: string) => void
+}
+
+const InputOTP = React.forwardRef<HTMLInputElement, InputOTPProps>(
+  ({ className, numInputs = 6, separator = <Dot />, value = "", onChange, ...props }, ref) => {
+    const [otp, setOtp] = React.useState(value)
+    const inputRefs = React.useRef<HTMLInputElement[]>([])
+
+    React.useEffect(() => {
+      setOtp(value)
+    }, [value])
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+      const newValue = e.target.value
+      if (newValue.length > 1) return
+
+      const newOtp = otp.split("")
+      newOtp[index] = newValue
+      const finalOtp = newOtp.join("")
+      setOtp(finalOtp)
+      onChange?.(finalOtp)
+
+      if (newValue && index < numInputs - 1) {
+        inputRefs.current[index + 1]?.focus()
+      }
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+      if (e.key === "Backspace" && !otp[index] && index > 0) {
+        inputRefs.current[index - 1]?.focus()
+      }
+    }
+
+    return (
+      <div className={cn("flex items-center gap-2", className)}>
+        {Array.from({ length: numInputs }).map((_, index) => (
+          <React.Fragment key={index}>
+            <input
+              ref={(el) => (inputRefs.current[index] = el!)}
+              type="text"
+              maxLength={1}
+              value={otp[index] || ""}
+              onChange={(e) => handleChange(e, index)}
+              onKeyDown={(e) => handleKeyDown(e, index)}
+              className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background text-center text-sm ring-offset-background transition-all",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                "disabled:cursor-not-allowed disabled:opacity-50",
+                className
+              )}
+              {...props}
+            />
+            {index < numInputs - 1 && separator}
+          </React.Fragment>
+        ))}
+      </div>
+    )
+  }
+)
 InputOTP.displayName = "InputOTP"
 
-const InputOTPGroup = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("flex items-center gap-2", className)} {...props} />
-))
-InputOTPGroup.displayName = "InputOTPGroup"
-
-const InputOTPSlot = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & { index: number }
->(({ index, className, ...props }, ref) => {
-  const inputOTPContext = React.useContext(OTPInputContext)
-  const { char, hasFakeCaret, isActive } = inputOTPContext.slots[index]
-
-  return (
-    <div
-      ref={ref}
-      className={cn(
-        "relative flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background text-sm transition-all",
-        isActive && "z-10 ring-2 ring-ring ring-offset-background",
-        className
-      )}
-      {...props}
-    >
-      {char}
-      {hasFakeCaret && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="h-4 w-px animate-caret-blink bg-foreground duration-1000" />
-        </div>
-      )}
-    </div>
-  )
-})
-InputOTPSlot.displayName = "InputOTPSlot"
-
-const InputOTPSeparator = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ ...props }, ref) => (
-  <div ref={ref} role="separator" {...props}>
-    <Dot />
-  </div>
-))
-InputOTPSeparator.displayName = "InputOTPSeparator"
-
-export { InputOTP, InputOTPGroup, InputOTPSlot, InputOTPSeparator }
+export { InputOTP }

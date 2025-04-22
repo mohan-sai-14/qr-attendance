@@ -14,7 +14,7 @@ interface InputOTPProps {
 const InputOTP = React.forwardRef<HTMLDivElement, InputOTPProps>(
   ({ className, numInputs = 6, separator = <Dot />, value = "", onChange, disabled, ...props }, ref) => {
     const [otp, setOtp] = React.useState(value)
-    const inputRefs = React.useRef<HTMLInputElement[]>([])
+    const inputRefs = React.useRef<(HTMLInputElement | null)[]>(Array(numInputs).fill(null))
 
     React.useEffect(() => {
       setOtp(value)
@@ -41,24 +41,27 @@ const InputOTP = React.forwardRef<HTMLDivElement, InputOTPProps>(
       }
     }
 
+    const inputClassName = cn(
+      "flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background text-center text-sm ring-offset-background transition-all",
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+      "disabled:cursor-not-allowed disabled:opacity-50"
+    )
+
     return (
       <div ref={ref} className={cn("flex items-center gap-2", className)} {...props}>
         {Array.from({ length: numInputs }).map((_, index) => (
           <React.Fragment key={index}>
             <input
-              ref={(el) => (inputRefs.current[index] = el!)}
+              ref={(el) => {
+                inputRefs.current[index] = el
+              }}
               type="text"
               maxLength={1}
               value={otp[index] || ""}
               onChange={(e) => handleChange(e, index)}
               onKeyDown={(e) => handleKeyDown(e, index)}
               disabled={disabled}
-              className={cn(
-                "flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background text-center text-sm ring-offset-background transition-all",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-                className
-              )}
+              className={inputClassName}
             />
             {index < numInputs - 1 && separator}
           </React.Fragment>

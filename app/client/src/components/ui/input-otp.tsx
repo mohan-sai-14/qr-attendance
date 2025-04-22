@@ -2,15 +2,17 @@ import * as React from "react"
 import { Dot } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-interface InputOTPProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface InputOTPProps {
   numInputs?: number
   separator?: React.ReactNode
   value?: string
   onChange?: (value: string) => void
+  className?: string
+  disabled?: boolean
 }
 
-const InputOTP = React.forwardRef<HTMLInputElement, InputOTPProps>(
-  ({ className, numInputs = 6, separator = <Dot />, value = "", onChange, ...props }, ref) => {
+const InputOTP = React.forwardRef<HTMLDivElement, InputOTPProps>(
+  ({ className, numInputs = 6, separator = <Dot />, value = "", onChange, disabled, ...props }, ref) => {
     const [otp, setOtp] = React.useState(value)
     const inputRefs = React.useRef<HTMLInputElement[]>([])
 
@@ -40,7 +42,7 @@ const InputOTP = React.forwardRef<HTMLInputElement, InputOTPProps>(
     }
 
     return (
-      <div className={cn("flex items-center gap-2", className)}>
+      <div ref={ref} className={cn("flex items-center gap-2", className)} {...props}>
         {Array.from({ length: numInputs }).map((_, index) => (
           <React.Fragment key={index}>
             <input
@@ -50,13 +52,13 @@ const InputOTP = React.forwardRef<HTMLInputElement, InputOTPProps>(
               value={otp[index] || ""}
               onChange={(e) => handleChange(e, index)}
               onKeyDown={(e) => handleKeyDown(e, index)}
+              disabled={disabled}
               className={cn(
                 "flex h-10 w-10 items-center justify-center rounded-md border border-input bg-background text-center text-sm ring-offset-background transition-all",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                 "disabled:cursor-not-allowed disabled:opacity-50",
                 className
               )}
-              {...props}
             />
             {index < numInputs - 1 && separator}
           </React.Fragment>

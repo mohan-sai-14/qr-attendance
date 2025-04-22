@@ -59,8 +59,8 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
 
       currentCamera.current = cameraId;
       
-      const config = {
-        fps: props.fps || 10,
+    const config = {
+      fps: props.fps || 10,
         qrbox: {
           width: props.qrbox || 250,
           height: props.qrbox || 250
@@ -114,28 +114,28 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
   }, [props.qrCodeSuccessCallback, props.qrCodeErrorCallback]);
 
   const checkCameraCapabilities = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      const videoTrack = stream.getVideoTracks()[0];
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const videoTrack = stream.getVideoTracks()[0];
       const capabilities = videoTrack.getCapabilities() as ExtendedMediaTrackCapabilities;
-      
-      if (capabilities.zoom) {
-        setShowZoomControls(true);
+        
+        if (capabilities.zoom) {
+          setShowZoomControls(true);
         setZoomLevel(capabilities.zoom.min || 1.0);
-        console.log('Zoom is supported with range:', capabilities.zoom.min, 'to', capabilities.zoom.max);
-      } else {
+          console.log('Zoom is supported with range:', capabilities.zoom.min, 'to', capabilities.zoom.max);
+        } else {
         setShowZoomControls(false);
-        console.log('Zoom is not supported on this device');
-      }
-      
-      stream.getTracks().forEach(track => track.stop());
-    } catch (error) {
+          console.log('Zoom is not supported on this device');
+        }
+        
+        stream.getTracks().forEach(track => track.stop());
+      } catch (error) {
       console.error('Error checking camera capabilities:', error);
-      setShowZoomControls(false);
+        setShowZoomControls(false);
       setError('Failed to access camera. Please ensure camera permissions are granted.');
-    }
-  };
-
+      }
+    };
+    
   const applyZoom = async (level: number) => {
     try {
       if (!html5QrCode.current || !isScanning.current) return;
@@ -179,7 +179,7 @@ export const Html5QrcodePlugin: React.FC<HTML5QrcodePluginProps> = (props) => {
   };
 
   if (error) {
-    return (
+              return (
       <div className="text-center p-4">
         <p className="text-red-500">{error}</p>
         <Button 

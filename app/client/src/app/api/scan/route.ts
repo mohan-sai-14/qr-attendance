@@ -1,149 +1,103 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'edge';
 
 // Handle POST request for scanning QR code
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    // Create supabase client
-    const supabase = createClientComponentClient();
-    
-    // Get current user session
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    const { qrCode } = await request.json();
+
+    if (!qrCode) {
       return NextResponse.json(
-        { error: 'Unauthorized', message: 'You must be logged in to record attendance' },
-        { status: 401 }
-      );
-    }
-    
-    // Get user from database
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', session.user.id)
-      .single();
-      
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized', message: 'User profile not found' },
-        { status: 401 }
-      );
-    }
-    
-    // Parse request body
-    const data = await req.json();
-    const { sessionId, timestamp } = data;
-    
-    // Validate request
-    if (!sessionId) {
-      return NextResponse.json(
-        { error: 'Bad Request', message: 'Session ID is required' },
+        { error: 'QR code is required' },
         { status: 400 }
       );
     }
-    
-    // Check if the session exists and is active
-    const { data: sessionData, error: sessionError } = await supabase
+
+    // Verify the QR code and mark attendance
+    const { data: session, error: sessionError } = await supabase
       .from('sessions')
       .select('*')
-      .eq('id', sessionId)
-      .maybeSingle();
-    
-    if (sessionError) {
-      console.error('Error checking session:', sessionError);
+      .eq('qr_code', qrCode)
+      .single();
+
+    if (sessionError || !session) {
       return NextResponse.json(
-        { error: 'Database Error', message: 'Failed to check session status' },
-        { status: 500 }
-      );
-    }
-    
-    if (!sessionData) {
-      return NextResponse.json(
-        { error: 'Not Found', message: 'Session not found' },
-        { status: 404 }
-      );
-    }
-    
-    if (sessionData.status !== 'active') {
-      return NextResponse.json(
-        { 
-          error: 'Invalid Session', 
-          message: 'This session is not active. Attendance can only be marked for active sessions.' 
-        },
+        { error: 'Invalid QR code' },
         { status: 400 }
       );
     }
-    
-    // Check if attendance already exists for this user and session
+
+    if (session.status !== 'active') {
+      return NextResponse.json(
+        { error: 'Session is not active' },
+        { status: 400 }
+      );
+    }
+
+    // Get user from session
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Check if attendance already exists
     const { data: existingAttendance, error: checkError } = await supabase
       .from('attendance')
       .select('*')
-      .eq('session_id', sessionId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-    
-    if (checkError) {
-      console.error('Error checking existing attendance:', checkError);
+      .eq('session_id', session.id)
+      .eq('student_id', user.id)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') {
       return NextResponse.json(
-        { error: 'Database Error', message: 'Failed to check existing attendance' },
+        { error: 'Error checking attendance' },
         { status: 500 }
       );
     }
-    
-    let result;
-    
-    // If attendance already exists, update it
+
     if (existingAttendance) {
-      const { data, error } = await supabase
-        .from('attendance')
-        .update({
-          timestamp: timestamp || new Date().toISOString(),
-          status: 'present'
-        })
-        .eq('id', existingAttendance.id)
-        .select()
-        .single();
-        
-      if (error) {
-        console.error('Error updating attendance:', error);
-        return NextResponse.json(
-          { error: 'Database Error', message: 'Failed to update attendance' },
-          { status: 500 }
-        );
-      }
-      
-      result = data;
-    } else {
-      // Create new attendance record
-      const { data, error } = await supabase
-        .from('attendance')
-        .insert({
-          session_id: sessionId,
-          user_id: user.id,
-          timestamp: timestamp || new Date().toISOString(),
-          status: 'present'
-        })
-        .select()
-        .single();
-        
-      if (error) {
-        console.error('Error creating attendance:', error);
-        return NextResponse.json(
-          { error: 'Database Error', message: 'Failed to create attendance record' },
-          { status: 500 }
-        );
-      }
-      
-      result = data;
+      return NextResponse.json(
+        { error: 'Attendance already marked' },
+        { status: 400 }
+      );
     }
-    
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error('Error processing scan:', error);
+
+    // Create attendance record
+    const { error: insertError } = await supabase
+      .from('attendance')
+      .insert({
+        session_id: session.id,
+        student_id: user.id,
+        status: 'present',
+        timestamp: new Date().toISOString()
+      });
+
+    if (insertError) {
+      return NextResponse.json(
+        { error: 'Error marking attendance' },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Internal Server Error', message: 'An unexpected error occurred' },
+      { message: 'Attendance marked successfully' },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('Error in scan route:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
